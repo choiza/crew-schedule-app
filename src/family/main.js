@@ -146,11 +146,14 @@
 
   var TEST_NAME = '테스트';
 
-  /** 예시를 보여 줄 때: 스케줄이 없고, 이름이 '테스트'이거나 처음 쓰는 민주(예시를 치우지 않았을 때) */
+  /** 테스트 사람에게 보여 줄 스케줄. 테스트 모드에서 고른다: 'sample' 예시, 'real' 넣은 스케줄 */
+  function testSource() {
+    return admin && admin.source === 'real' ? 'real' : 'sample';
+  }
+
+  /** 예시는 이름이 '테스트'이고 테스트 모드에서 예시를 골랐을 때만 보여 준다. 다른 사람은 스케줄이 없으면 빈 달력이다. */
   function isSample() {
-    if (db.entries.length) return false;
-    if (NAME === TEST_NAME) return true;
-    return people.current === 'minju' && !db.hideSample;
+    return NAME === TEST_NAME && testSource() === 'sample';
   }
   function rawEntries() { return isSample() ? sampleEntries() : db.entries; }
 
@@ -164,8 +167,17 @@
   }
 
   /** 예시를 고치기 시작하면 예시를 내 스케줄로 옮겨 온다 */
+  /** 고치기 전에 내 스케줄로 만든다. 예시를 보는 중에 넣은 스케줄이 있으면 덮어쓰지 않고 멈춘다. */
   function ensureOwn() {
-    if (isSample()) db.entries = sampleEntries().map(function (entry) { return Object.assign({}, entry); });
+    if (!isSample()) return true;
+    if (db.entries.length) {
+      toast('지금은 예시 스케줄을 보고 있어요. 테스트 모드에서 "넣은 스케줄"로 바꾼 뒤 고쳐 주세요.');
+      return false;
+    }
+    db.entries = sampleEntries().map(function (entry) { return Object.assign({}, entry); });
+    admin.source = 'real';
+    saveAdmin();
+    return true;
   }
 
   function monthsWithData() {
@@ -1086,7 +1098,7 @@
     var raw = {};
     try { raw = JSON.parse(localStorage.getItem(keyFor(person.id)) || '{}') || {}; } catch (e) { raw = {}; }
     var list = raw.entries || [];
-    var useSample = !list.length && person.name === TEST_NAME;
+    var useSample = person.name === TEST_NAME && testSource() === 'sample';
     if (useSample) list = sampleEntries();
     if (!list.length) return null;
     var fixes = raw.routeFix || {};
@@ -1322,7 +1334,7 @@
 
   /** 그날 코드 목록을 통째로 바꾼다. 파서를 거쳐 종류와 노선을 붙인다. */
   function setDayCodes(iso, codes) {
-    ensureOwn();
+    if (!ensureOwn()) return;
     var kept = db.entries.filter(function (entry) { return entry.date !== iso; });
     var fresh = [];
     if (codes.length) {
@@ -1924,6 +1936,11 @@
     var first = Object.keys(months).sort()[0];
     pending = null;
     save();
+    // 테스트 사람이 예시를 보는 중에 캡처를 넣으면 넣은 스케줄이 보이게 바꾼다
+    if (NAME === TEST_NAME && testSource() === 'sample') {
+      admin.source = 'real';
+      saveAdmin();
+    }
     $('previewSheet').close();
     state.year = +first.slice(0, 4);
     state.month = +first.slice(5, 7);
@@ -2507,9 +2524,14 @@
       '</div>' +
       '<div class="btn-row"><button type="button" id="adminApply" class="btn btn-primary btn-grow">이 날로 보기</button>' +
         '<button type="button" class="btn btn-grow" data-admin-reset>실제 오늘로</button></div>' +
-      '<div class="btn-row"><button type="button" class="btn btn-grow" data-test-person>테스트 사람으로 예시 보기</button>' +
-        '<button type="button" class="btn btn-grow" data-open-people>사람 추가, 바꾸기</button></div>' +
-      '<div class="btn-row"><button type="button" class="btn btn-grow" data-go="import">캡처 넣기</button></div>' +
+      '<p class="fields-label">테스트 사람에게 보여 줄 스케줄</p>' +
+      '<div class="kind-row two">' +
+        '<button type="button" class="kind-btn' + (testSource() === 'sample' ? ' is-on' : '') + '" data-test-source="sample" aria-pressed="' + (testSource() === 'sample') + '">예시 스케줄</button>' +
+        '<button type="button" class="kind-btn' + (testSource() === 'real' ? ' is-on' : '') + '" data-test-source="real" aria-pressed="' + (testSource() === 'real') + '">넣은 스케줄</button>' +
+      '</div>' +
+      '<p class="note">예시 스케줄은 앱을 보여 주려고 지어낸 근무표입니다. 넣은 스케줄은 테스트 사람에게 캡처로 넣은 것이고, 이 폰에만 저장됩니다.</p>' +
+      '<div class="btn-row"><button type="button" class="btn btn-grow" data-open-people>사람 추가, 바꾸기</button>' +
+        '<button type="button" class="btn btn-grow" data-go="import">캡처 넣기</button></div>' +
       '<div class="btn-row"><button type="button" id="adminOff" class="btn btn-quiet">테스트 모드 끄기</button></div>';
   }
 
@@ -2604,13 +2626,20 @@
       render();
       return toast('실제 오늘로 돌아왔습니다.');
     }
-    if (target.hasAttribute('data-test-person')) {
+    if (data.testSource) {
+      admin.source = data.testSource === 'real' ? 'real' : 'sample';
+      saveAdmin();
+      var sourceText = admin.source === 'real' ? '넣은 스케줄' : '예시 스케줄';
       var testPerson = people.list.filter(function (p) { return p.name === TEST_NAME; })[0];
-      if (testPerson) return switchPerson(testPerson.id, '테스트 사람으로 바꿨습니다. 예시 스케줄이 보입니다.');
+      if (testPerson && testPerson.id === people.current) {
+        render();
+        return toast('테스트 사람에게 ' + sourceText + '을 보여 줍니다.');
+      }
+      if (testPerson) return switchPerson(testPerson.id, '테스트 사람으로 바꿨습니다. ' + sourceText + '이 보입니다.');
       var testId = 'u' + Date.now().toString(36);
       people.list.push({ id: testId, name: TEST_NAME });
       savePeople();
-      return switchPerson(testId, '테스트 사람을 만들었습니다. 예시 스케줄이 보입니다.');
+      return switchPerson(testId, '테스트 사람을 만들었습니다. ' + sourceText + '이 보입니다.');
     }
     if (target.id === 'adminOff') {
       admin = {};
@@ -2776,15 +2805,7 @@
     }
     if (target.id === 'clearData') {
       if (!db.entries.length) {
-        if (!isSample()) return toast('지울 스케줄이 없습니다.');
-        if (NAME === TEST_NAME) return toast('테스트 사람은 늘 예시 스케줄을 보여 줍니다.');
-        if (!window.confirm('예시 스케줄을 치울까요? 달력이 비고, 캡처를 넣으면 ' + NAME + ' 스케줄이 보입니다.')) return;
-        db.hideSample = true;
-        save();
-        render();
-        go('calendar');
-        window.scrollTo(0, 0);
-        return toast('예시 스케줄을 치웠습니다. 달력이 비었습니다.');
+        return toast(isSample() ? '지금은 예시 스케줄이라 지울 넣은 스케줄이 없습니다.' : '지울 스케줄이 없습니다.');
       }
       if (!window.confirm(NAME + '의 넣은 스케줄을 모두 지울까요? 고친 내용과 예매 표시도 지워집니다. 버스 설정과 코드 뜻은 남습니다.')) return;
       db.entries = [];
@@ -2792,14 +2813,12 @@
       db.routeFix = {};
       db.edited = {};
       db.booked = {};
-      // 지운 뒤에 예시가 다시 나오면 지워졌는지 알 수 없다. 테스트 사람만 예시로 돌아간다.
-      if (NAME !== TEST_NAME) db.hideSample = true;
       save();
       pickMonth();
       render();
       go('calendar');
       window.scrollTo(0, 0);
-      return toast(NAME === TEST_NAME ? '스케줄을 지웠습니다. 예시 스케줄이 다시 보입니다.' : NAME + ' 스케줄을 모두 지웠습니다. 달력이 비었습니다.');
+      return toast(NAME + ' 스케줄을 모두 지웠습니다. ' + (isSample() ? '지금은 예시 스케줄이 보입니다.' : '달력이 비었습니다.'));
     }
     if (data.alarm) {
       var parts = data.alarm.split('|');
