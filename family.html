@@ -120,17 +120,17 @@
       <h2 class="display">설정</h2>
     </section>
 
-    <section class="panel">
-      <h3 class="panel-title">스케줄 보는 사람</h3>
+    <details class="panel fold">
+      <summary class="panel-title">스케줄 보는 사람</summary>
       <div class="person-row">
         <p class="person-now"><span id="personNow">민주</span><small>설정은 사람마다 따로 저장됩니다</small></p>
         <button type="button" class="btn btn-small" data-open-people>사람 바꾸기, 추가</button>
       </div>
-    </section>
+    </details>
 
 
-    <section class="panel">
-      <h3 class="panel-title">출발지 우선순위</h3>
+    <details class="panel fold">
+      <summary class="panel-title">출발지 우선순위</summary>
       <p class="note">위에 있는 곳부터 공항 도착 시간에 맞는 버스를 찾고, 맞는 차가 없으면 다음 순위에서 고릅니다. 지역마다 정류장과 집에서 그 정류장까지 걸리는 시간을 따로 정합니다.</p>
       <ol id="placeList" class="place-list"></ol>
       <div class="btn-row">
@@ -144,10 +144,10 @@
           <span class="num-input"><input id="set-maxSpare" data-setting="maxSpare" type="number" inputmode="numeric" min="0" max="360" step="10">분</span>
         </div>
       </div>
-    </section>
+    </details>
 
-    <section class="panel">
-      <h3 class="panel-title">준비 시간과 알림</h3>
+    <details class="panel fold">
+      <summary class="panel-title">준비 시간과 알림</summary>
       <p class="fields-label">공항 가는 날</p>
       <div class="fields">
         <div class="field">
@@ -182,9 +182,7 @@
         </div>
       </div>
       <p class="note">5400번은 버스타고에서 출발 15일 전부터 예매할 수 있다고 알려져 있습니다. 노선마다 다를 수 있어요.</p>
-    </section>
-
-    <p class="fold-label">더 보기</p>
+    </details>
 
     <details class="panel fold">
       <summary class="panel-title">버스 타는 시간</summary>

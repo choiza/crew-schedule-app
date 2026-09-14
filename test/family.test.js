@@ -143,3 +143,13 @@ test('사전 코드로 이루어진 날도 휴무와 근무를 바르게 센다'
   assert.strictEqual(plan.dayType(day(m, 7)), 'off');
   assert.deepStrictEqual([day(m, 9).kind, plan.dayType(day(m, 9))], ['standby', 'work']);
 });
+
+test('대한항공 자료에서 확인한 코드를 가족 말로 옮긴다', () => {
+  const w = (code) => { const x = plan.wordFor(code, 'unknown', {}); return [x.short, x.category]; };
+  assert.deepStrictEqual(w('RDO'), ['휴무', 'off']);
+  assert.deepStrictEqual(w('ALV'), ['휴가', 'vacation']);
+  assert.deepStrictEqual(w('SLV'), ['휴가', 'vacation']);
+  assert.deepStrictEqual(w('RF'), ['비행대기', 'standby']);
+  assert.deepStrictEqual(w('ABS'), ['결근', 'work']);
+  assert.match(plan.wordFor('ADO', 'unknown', {}).long, /자동 휴무/);
+});

@@ -34,7 +34,12 @@
   var DEFAULT_WORDS = {
     ATDO: { short: '휴무', long: '의무 휴일 (장거리 비행 뒤 꼭 쉬는 날)', category: 'off' },
     PDO: { short: '휴무', long: '유급 휴일', category: 'off' },
-    ADO: { short: '휴무', long: '휴일', category: 'off' },
+    ADO: { short: '휴무', long: '자동 휴무 (한 달 최소 휴무일을 채우려고 넣는 날)', category: 'off' },
+    RDO: { short: '휴무', long: '신청한 휴무', category: 'off' },
+    ALV: { short: '휴가', long: '연차 휴가', category: 'vacation' },
+    SLV: { short: '휴가', long: '신청한 휴가', category: 'vacation' },
+    ABS: { short: '결근', long: '결근', category: 'work' },
+    RF: { short: '비행대기', long: '비행 대기. 비어 있다가 나중에 비행이 들어올 수 있는 날', category: 'standby' },
     DO: { short: '휴무', long: '휴일', category: 'off' },
     STBY: { short: '대기', long: '대기 근무. 연락이 오면 비행에 나갑니다', category: 'standby' },
     TFRS: { short: '교육', long: '교육', category: 'training' },
