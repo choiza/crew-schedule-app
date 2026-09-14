@@ -3435,6 +3435,14 @@
       render();
       return toast('예매 표시를 지웠습니다.');
     }
+    if (target.id === 'resetPhone') {
+      if (!window.confirm('이 폰의 사람, 스케줄, 가족 링크, 관리자 설정을 모두 지울까요? 되돌릴 수 없습니다.')) return;
+      try {
+        Object.keys(localStorage).filter(function (k) { return k.indexOf('crew-family.') === 0; }).forEach(function (k) { localStorage.removeItem(k); });
+      } catch (e) { return toast('이 폰의 저장소를 지우지 못했습니다.'); }
+      if (window.history && history.replaceState) history.replaceState(null, '', location.pathname);
+      return location.reload();
+    }
     if (target.id === 'shareCalendar') return exportCalendarImage(modelFor(state.year, state.month));
 
     if (data.export) {
