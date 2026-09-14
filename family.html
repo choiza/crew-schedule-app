@@ -154,6 +154,12 @@
           <span class="num-input"><input id="set-maxSpare" data-setting="maxSpare" type="number" inputmode="numeric" min="0" max="360" step="10">분</span>
         </div>
       </div>
+      <p class="fields-label">시간표</p>
+      <div id="customTimes"></div>
+      <details class="timetable">
+        <summary id="timetableSummary">시간표 보기</summary>
+        <div id="timetable" class="timetable-body"></div>
+      </details>
     </details>
 
     <details class="panel fold">
@@ -199,15 +205,6 @@
       <p id="travelSource" class="note"></p>
       <p class="note">비워 두면 요일과 시간대에 맞춰 자동으로 계산합니다. 몇 번 타 보고 늘 다르면 직접 넣어 주세요.</p>
       <div id="travelFields" class="fields"></div>
-    </details>
-
-    <details class="panel fold">
-      <summary class="panel-title">시간표</summary>
-      <div id="customTimes"></div>
-      <details class="timetable">
-        <summary id="timetableSummary">시간표 보기</summary>
-        <div id="timetable" class="timetable-body"></div>
-      </details>
     </details>
 
     <details class="panel fold">
