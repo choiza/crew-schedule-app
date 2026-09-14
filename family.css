@@ -1416,3 +1416,16 @@ input.place-name { font-weight: 600; padding: 8px 10px; }
   width: 100%; min-width: 0;
   font: 600 14px/1.2 var(--f-body); color: var(--ink); background: var(--surface);
 }
+
+/* 설정: 자주 쓰는 칸만 펼치고 나머지는 접는다 */
+.settings-head { padding-block: 4px; background: transparent; box-shadow: none; }
+.fields-label { margin: 14px 0 6px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); letter-spacing: 0.02em; }
+.panel > .fields-label:first-of-type { margin-top: 4px; }
+.fold-label { margin: 8px 4px 0; font-size: 12.5px; font-weight: 700; color: var(--ink-3); }
+details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; margin: 0; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::after { content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3); transform: rotate(45deg); transition: transform 0.15s; }
+details.fold[open] > summary::after { transform: rotate(-135deg); }
+details.fold[open] > summary { margin-bottom: 12px; }
+.fold-count { font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+@media (prefers-reduced-motion: reduce) { details.fold > summary::after { transition: none; } }

@@ -2025,6 +2025,13 @@
 
     var codes = allCodes();
     var waiting = waitingCodes();
+    // 확인할 코드가 있으면 접힌 칸을 열고 제목 옆에 개수를 단다
+    if ($('codesWaiting')) {
+      $('codesWaiting').hidden = !waiting.length;
+      $('codesWaiting').textContent = waiting.length ? '확인 ' + waiting.length : '';
+      if (waiting.length) $('codesPanel').open = true;
+    }
+    if ($('installFold')) $('installFold').hidden = isStandalone();
     var done = codes.filter(function (code) { return db.confirmed[code]; });
     $('codeList').innerHTML =
       (waiting.length
@@ -2565,6 +2572,7 @@
     }
     if (target.hasAttribute('data-go-codes')) {
       go('settings');
+      $('codesPanel').open = true;
       $('codesPanel').scrollIntoView({ block: 'start' });
       return;
     }
