@@ -96,3 +96,35 @@ test('올리기 링크는 쓰기 열쇠와 이름을 담고, 보기 링크에는
   assert.deepStrictEqual(sync.fromHash(view.slice(view.indexOf('#'))), { id: link.id, key: link.key, token: null, name: '신주' });
   assert.ok(!view.includes(link.token));
 });
+
+test('가족 링크 하나에 여러 사람이 담기고, 쓰기 열쇠는 링크에 없다', async () => {
+  const group = await sync.newGroup(['민주', '신주'], '2004');
+  const url = sync.groupLinkFor('https://choiza.github.io/crew-schedule-app/family.html', group);
+  const back = sync.fromGroupHash(url.slice(url.indexOf('#')));
+  assert.deepStrictEqual(back, group);
+  for (const p of group.people) {
+    const token = await sync.writeToken(p.id, '2004');
+    assert.ok(token.length >= 32);
+    assert.ok(!url.includes(token));
+  }
+  assert.strictEqual(sync.fromGroupHash('#g=bad'), null);
+});
+
+test('관리자 비밀번호가 맞을 때만 같은 확인값과 같은 쓰기 열쇠', async () => {
+  const group = await sync.newGroup(['민주'], '2004');
+  assert.strictEqual(await sync.pinCheck(group.salt, '2004'), group.check);
+  assert.notStrictEqual(await sync.pinCheck(group.salt, '2005'), group.check);
+  const id = group.people[0].id;
+  assert.strictEqual(await sync.writeToken(id, '2004'), await sync.writeToken(id, '2004'));
+  assert.notStrictEqual(await sync.writeToken(id, '2004'), await sync.writeToken(id, '1234'));
+});
+
+test('비밀번호로 만든 쓰기 열쇠로 올리고, 틀린 비밀번호 열쇠는 막힌다', async () => {
+  const fake = fakeSupabase();
+  const api = sync.client(CFG, fake.fetcher);
+  const group = await sync.newGroup(['민주'], '2004');
+  const p = group.people[0];
+  await api.put(p.id, await sync.seal(payload('DO'), p.key), await sync.writeToken(p.id, '2004'));
+  await api.put(p.id, await sync.seal(payload('STBY'), p.key), await sync.writeToken(p.id, '2004'));
+  await assert.rejects(api.put(p.id, await sync.seal(payload('X'), p.key), await sync.writeToken(p.id, '0000')), /권한이 없습니다/);
+});

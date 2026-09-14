@@ -5,6 +5,10 @@
  * 보기 링크: <앱 주소>#f=<저장 칸 번호>&fk=<푸는 열쇠>&fn=<이름>
  * 올리기 링크: 보기 링크 + &ft=<쓰기 열쇠>. 그 사람 본인에게만 준다.
  * 쓰기는 보내는 폰만 가진 쓰기 열쇠(token)로만 된다. 저장소에는 그 SHA-256 값만 둔다(scripts/supabase-share.sql).
+ *
+ * 가족 링크(하나로 모두): <앱 주소>#g=<{사람마다 이름, 칸 번호, 푸는 열쇠}와 비밀번호 확인값을 담은 글자>
+ * 가족은 모두 같은 링크로 본다. 올리기와 고치기는 관리자 비밀번호를 넣은 폰만 한다.
+ * 쓰기 열쇠는 링크에 없고, 칸 번호와 관리자 비밀번호에서 만든다.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -137,6 +141,50 @@
     return { id: id[1], key: key[1], token: token ? token[1] : null, name: decoded };
   }
 
+  function sha256Text(text) {
+    return cryptoApi().subtle.digest('SHA-256', new TextEncoder().encode(text))
+      .then(function (buffer) { return toBase64Url(new Uint8Array(buffer)); });
+  }
+
+  /** 관리자 비밀번호로 사람마다 쓰기 열쇠를 만든다. 저장소는 이 값의 SHA-256 만 가진다. */
+  function writeToken(id, pin) {
+    return sha256Text('crew-family-write|' + id + '|' + String(pin));
+  }
+
+  /** 링크에 담는 비밀번호 확인값. 폰에서 비밀번호가 맞는지만 본다. */
+  function pinCheck(salt, pin) {
+    return sha256Text('crew-family-pin|' + salt + '|' + String(pin)).then(function (text) { return text.slice(0, 22); });
+  }
+
+  /** 가족 링크 하나: group = { salt, check, people: [{ name, id, key }] } */
+  function groupLinkFor(baseUrl, group) {
+    var body = JSON.stringify({ v: 1, s: group.salt, c: group.check, p: group.people.map(function (p) { return { n: p.name, i: p.id, k: p.key }; }) });
+    return String(baseUrl).split('#')[0] + '#g=' + toBase64Url(new TextEncoder().encode(body));
+  }
+
+  /** 주소의 # 에서 가족 링크. 모양이 틀리면 null. */
+  function fromGroupHash(hash) {
+    var match = /[#&]g=([A-Za-z0-9_-]{20,4000})(?:&|$)/.exec(String(hash || ''));
+    if (!match) return null;
+    try {
+      var data = JSON.parse(new TextDecoder().decode(fromBase64Url(match[1])));
+      if (!data || data.v !== 1 || !Array.isArray(data.p) || !data.p.length || !data.s || !data.c) return null;
+      var people = data.p.filter(function (p) {
+        return p && /^[A-Za-z0-9_-]{20,64}$/.test(p.i) && /^[A-Za-z0-9_-]{40,60}$/.test(p.k) && String(p.n || '').trim();
+      }).map(function (p) { return { name: String(p.n).trim().slice(0, 20), id: p.i, key: p.k }; });
+      return people.length ? { salt: String(data.s), check: String(data.c), people: people.slice(0, 20) } : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** 새 가족 묶음: 사람 이름들과 관리자 비밀번호로 칸 번호, 열쇠, 확인값을 만든다. */
+  function newGroup(names, pin) {
+    var salt = randomText(12);
+    var people = names.map(function (name) { var l = newLink(); return { name: name, id: l.id, key: l.key }; });
+    return pinCheck(salt, pin).then(function (check) { return { salt: salt, check: check, people: people }; });
+  }
+
   /** Supabase 함수 부르기. fetcher 는 테스트에서 바꿔 끼운다. */
   function client(cfg, fetcher) {
     var base = String(cfg.url || '').replace(/\/$/, '');
@@ -192,6 +240,11 @@
     open: open,
     linkFor: linkFor,
     fromHash: fromHash,
+    writeToken: writeToken,
+    pinCheck: pinCheck,
+    groupLinkFor: groupLinkFor,
+    fromGroupHash: fromGroupHash,
+    newGroup: newGroup,
     client: client
   };
 });
