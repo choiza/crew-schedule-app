@@ -1402,7 +1402,7 @@
       savePeople();
       if (results.some(Boolean)) render();
       else if (state.view === 'settings') renderFamilyBox();
-      if (manual && followers.length && !followers.some(function (p) { return p.follow.error; })) toast('최신 스케줄을 받았습니다.');
+      if (manual && followers.length && !followers.some(function (p) { return p.follow.error; })) toast('Sync 했습니다. 가족 스케줄이 최신입니다.');
     });
   }
 
@@ -1458,11 +1458,12 @@
       (manager
         ? linkRow('가족 링크 (모두 같은 링크)', familyUrl(), 'group', '가족에게 이 링크 하나만 보내면 됩니다. 링크를 가진 사람은 모두 볼 수 있습니다.') +
           '<p class="note"><b>이 폰은 관리자입니다.</b> 캡처를 넣거나 일정을 고치면 가족 모두에게 올라가고, 마지막에 올린 스케줄로 맞춰집니다. 제목을 눌러 사람을 추가하면 가족 모두의 폰에 들어갑니다.</p>' +
-          '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
-          (mine ? '<button type="button" class="btn btn-grow" data-family-push>지금 올리기</button>' : '') + '</div>' +
+          '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-sync>Sync</button></div>' +
+          '<p class="note">못 올린 변경이 있으면 올리고, 가족 스케줄을 최신으로 받습니다. 평소에는 앱을 열 때와 30분마다 저절로 맞춰집니다.</p>' +
           '<div class="btn-row"><button type="button" class="btn btn-grow btn-quiet" data-manager-off>관리자 끄기</button></div>'
-        : '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
-          '<button type="button" class="btn btn-grow" data-manager-on>관리자 켜기</button></div>' +
+        : '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-sync>Sync</button></div>' +
+          '<p class="note">가족 스케줄을 지금 최신으로 받습니다. 평소에는 앱을 열 때와 30분마다 저절로 맞춰지니, 방금 올린 스케줄이 안 보일 때만 누르세요.</p>' +
+          '<div class="btn-row"><button type="button" class="btn btn-grow" data-manager-on>관리자 켜기</button></div>' +
           '<p class="note">스케줄을 올리거나 고치려면 관리자를 켜고 비밀번호를 넣습니다. 한 번 켜면 이 폰에서 계속 유지됩니다.</p>');
   }
 
@@ -3016,7 +3017,6 @@
       if (!familyUrl()) return toast('복사할 링크가 없습니다.');
       return copyText(familyUrl(), '가족 링크를 복사했습니다.');
     }
-    if (target.hasAttribute('data-family-push')) return uploadFamily(true);
     if (target.hasAttribute('data-manager-on')) {
       var managerGroup = groupInfo();
       if (!managerGroup) return toast('가족 링크를 먼저 넣어 주세요.');
@@ -3047,7 +3047,11 @@
       if (state.view === 'settings') renderFamilyBox();
       return toast('관리자를 껐습니다.');
     }
-    if (target.hasAttribute('data-family-pull')) return pullFamilies(true);
+    if (target.hasAttribute('data-family-sync')) {
+      // 관리자 폰: 보고 있는 사람의 못 올린 변경을 먼저 올리고, 모두 최신으로 받는다
+      var syncing = writeLinkFor(currentPerson()) && currentPerson().follow.dirty ? uploadFamily(false) : Promise.resolve();
+      return syncing.then(function () { return pullFamilies(true); });
+    }
     if (data.togetherShift) {
       state.month += +data.togetherShift;
       if (state.month < 1) { state.month = 12; state.year -= 1; }
