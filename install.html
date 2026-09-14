@@ -68,7 +68,7 @@
     <span class="tag">가족 링크</span>
     <h2>설치한 뒤 할 일</h2>
     <ol>
-      <li><b>가족 모두</b>: 받은 <b>가족 링크</b>를 복사해서, 앱의 설정, 스케줄 보는 사람, <b>받은 링크 넣기</b>를 누릅니다. 민주, 신주 스케줄이 함께 들어오고 앱을 열 때마다 최신으로 바뀝니다.</li>
+      <li><b>가족 모두</b>: 받은 <b>가족 링크</b>를 복사해서, 앱의 설정, 가족 링크, <b>받은 링크 넣기</b>를 누릅니다. 민주, 신주 스케줄이 함께 들어오고 앱을 열 때마다 최신으로 바뀝니다.</li>
       <li><b>스케줄 올리는 사람</b>: 같은 곳에서 <b>관리자 켜기</b>를 누르고 비밀번호를 넣습니다. 한 번만 하면 그 폰에서 캡처를 넣고 일정을 고칠 수 있습니다.</li>
     </ol>
     <p class="note">링크는 카톡에서 누르지 말고 복사해서 앱 안에 붙여 넣어 주세요. 그냥 누르면 브라우저에만 저장됩니다.</p>
@@ -87,11 +87,6 @@
   </section>
 </main>
 <script>
-  // GitHub Pages 에는 APK 가 없으니 Releases 의 최신 파일로 받는다
-  if (/\.github\.io$/.test(location.hostname)) {
-    document.querySelector('#android .btn').href = 'https://github.com/choiza/crew-schedule-app/releases/latest/download/oneul-minju.apk';
-  }
-
   // 지금 폰에 맞는 칸을 먼저 보이게 한다
   (function () {
     var ua = navigator.userAgent;

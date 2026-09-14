@@ -122,22 +122,13 @@
 
     <details class="panel fold">
       <summary class="panel-title">가족 링크, 관리자</summary>
-      <div class="person-row" id="peopleRow">
-        <p class="person-now"><span id="personNow">민주</span><small>설정은 사람마다 따로 저장됩니다</small></p>
-        <button type="button" class="btn btn-small" data-open-people>사람 바꾸기, 추가</button>
-      </div>
-      <div class="btn-row" id="shareButtons">
-        <button type="button" class="btn btn-grow" data-open-share id="oneShareBtn">한 번 보내는 링크</button>
-        <button type="button" class="btn btn-grow" data-open-receive>받은 링크 넣기</button>
-      </div>
-      <p class="note" id="oneShareNote">한 번 보내는 링크는 서버에 올리지 않고 스케줄을 링크 안에 담습니다. 스케줄이 바뀌면 새 링크를 보내야 합니다.</p>
       <div id="familyLinkBox" class="family-link"></div>
       <details class="howto">
         <summary>가족 링크 사용법</summary>
         <p class="howto-who">가족 모두 (보기)</p>
         <ol>
           <li>받은 <b>가족 링크</b>를 누르지 말고 길게 눌러 복사합니다.</li>
-          <li>이 앱에서 설정, 스케줄 보는 사람, <b>받은 링크 넣기</b>를 누르면 민주, 신주 스케줄이 함께 들어옵니다.</li>
+          <li>이 앱에서 설정, 가족 링크, <b>받은 링크 넣기</b>를 누르면 가족 스케줄이 함께 들어옵니다.</li>
           <li>그 뒤로는 앱을 열 때마다 최신 스케줄이 보입니다. 제목을 눌러 사람을 바꿉니다.</li>
         </ol>
         <p class="howto-who">스케줄을 올리는 사람 (관리자)</p>
@@ -228,10 +219,9 @@
     </details>
 
     <details class="panel fold">
-      <summary class="panel-title">캘린더, 근무표, 스케줄 지우기</summary>
+      <summary class="panel-title">캘린더, 스케줄 지우기</summary>
       <div class="btn-row">
         <button type="button" id="exportMonth" class="btn">이번 달 캘린더에 넣기</button>
-        <button type="button" data-open-export class="btn">근무표 뽑기</button>
         <button type="button" id="clearData" class="btn btn-quiet">넣은 스케줄 지우기</button>
       </div>
       <p class="note">캘린더 파일에는 비행, 버스 탑승, 기상 알림, 버스 예매 알림, 휴무가 들어갑니다.</p>
@@ -368,7 +358,6 @@
 <script src="src/family/bus.js"></script>
 <script src="src/family/travel-data.js"></script>
 <script src="src/family/plan.js"></script>
-<script src="src/family/share.js"></script>
 <script src="src/family/sync.js"></script>
 <script src="src/family/main.js"></script>
 </body>

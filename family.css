@@ -734,7 +734,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   left: 0; right: 0; bottom: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   max-width: 520px;
   margin: 0 auto;
   padding: 6px 12px calc(8px + env(safe-area-inset-bottom));
@@ -1161,6 +1162,7 @@ h1.brand { margin: 0; font: inherit; }
 .person-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line-strong); }
 .person.is-current .person-dot { border-color: var(--accent); background: var(--accent); }
 .person-name { font: 700 16px/1.2 var(--f-display); }
+.person-name small { display: block; margin-top: 3px; font: 500 12px/1.2 var(--f-body); color: var(--ink-3); }
 .person-main .route-chip { margin-left: auto; }
 .file-btn { position: relative; overflow: hidden; cursor: pointer; }
 .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
@@ -1503,3 +1505,27 @@ details.fold[open] > summary { margin-bottom: 12px; }
 .link-label { margin: 0; font-size: 13px; font-weight: 700; color: var(--ink); }
 .link-row .share-link { background: var(--surface); max-height: 64px; }
 .link-row .note { margin: 0; }
+
+/* 함께 보기 달력 */
+.tg-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-top: 10px; }
+.tg-week { text-align: center; font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 2px 0 4px; }
+.tg-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 52px; padding: 5px 2px; border: 0; border-radius: 8px;
+  background: var(--surface-2); color: var(--ink); font: inherit; cursor: pointer; min-width: 0;
+}
+.tg-cell.is-blank { background: transparent; cursor: default; }
+.tg-cell b { font: 600 13px/1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.tg-cell.is-sun b { color: var(--warn); }
+.tg-cell small { display: block; max-width: 100%; font-size: 10.5px; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+.tg-cell.is-both { background: var(--off-tint); box-shadow: inset 0 0 0 1.5px var(--off); }
+.tg-cell.is-both .tg-off { color: var(--off); font-weight: 700; }
+.tg-cell.is-same { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.tg-cell.is-same .tg-city { color: var(--accent-ink); font-weight: 700; }
+.tg-cell.is-both.is-same { box-shadow: inset 0 0 0 1.5px var(--off), inset 0 0 0 3px var(--accent); }
+.tg-cell.is-today { outline: 2px solid var(--ink); outline-offset: -2px; }
+.tg-week.is-sun { color: var(--warn); }
+.together-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; font-size: 12.5px; color: var(--ink-2); }
+.tg-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: -8px; vertical-align: -1px; }
+.tg-key.is-both { background: var(--off-tint); box-shadow: inset 0 0 0 1.5px var(--off); }
+.tg-key.is-same { background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--accent); }

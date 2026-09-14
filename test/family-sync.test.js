@@ -48,14 +48,6 @@ test('잠근 스케줄은 링크의 열쇠로만 풀린다', async () => {
   await assert.rejects(sync.open(cipher, sync.newLink().key), /열쇠가 맞지 않습니다/);
 });
 
-test('가족 링크는 번호와 열쇠를 # 뒤에 담는다', () => {
-  const link = sync.newLink();
-  const url = sync.linkFor('https://choiza.github.io/crew-schedule-app/family.html#x', link.id, link.key);
-  assert.ok(url.startsWith('https://choiza.github.io/crew-schedule-app/family.html#f='));
-  assert.deepStrictEqual(sync.fromHash(url.slice(url.indexOf('#'))), { id: link.id, key: link.key, token: null, name: null });
-  assert.strictEqual(sync.fromHash('#s=abc&k=12345678'), null);
-});
-
 test('보내는 폰이 올리면 링크 받은 폰이 최신을 받는다', async () => {
   const fake = fakeSupabase();
   const api = sync.client(CFG, fake.fetcher);
@@ -85,16 +77,6 @@ test('쓰기 열쇠가 다른 폰은 바꿀 수 없고, 없는 링크는 null', 
 test('인터넷이 끊기면 알아듣는 말로', async () => {
   const api = sync.client(CFG, async () => { throw new TypeError('Failed to fetch'); });
   await assert.rejects(api.get('a'.repeat(24)), /인터넷에 연결되지 않아/);
-});
-
-test('올리기 링크는 쓰기 열쇠와 이름을 담고, 보기 링크에는 쓰기 열쇠가 없다', () => {
-  const link = sync.newLink();
-  const base = 'https://choiza.github.io/crew-schedule-app/family.html';
-  const upload = sync.linkFor(base, link.id, link.key, '신주', link.token);
-  const view = sync.linkFor(base, link.id, link.key, '신주');
-  assert.deepStrictEqual(sync.fromHash(upload.slice(upload.indexOf('#'))), { id: link.id, key: link.key, token: link.token, name: '신주' });
-  assert.deepStrictEqual(sync.fromHash(view.slice(view.indexOf('#'))), { id: link.id, key: link.key, token: null, name: '신주' });
-  assert.ok(!view.includes(link.token));
 });
 
 test('가족 링크 하나에 여러 사람이 담기고, 쓰기 열쇠는 링크에 없다', async () => {
@@ -127,4 +109,21 @@ test('비밀번호로 만든 쓰기 열쇠로 올리고, 틀린 비밀번호 열
   await api.put(p.id, await sync.seal(payload('DO'), p.key), await sync.writeToken(p.id, '2004'));
   await api.put(p.id, await sync.seal(payload('STBY'), p.key), await sync.writeToken(p.id, '2004'));
   await assert.rejects(api.put(p.id, await sync.seal(payload('X'), p.key), await sync.writeToken(p.id, '0000')), /권한이 없습니다/);
+});
+
+test('가족 명단 칸은 링크에서만 나오고, 사람을 더하면 합쳐진다', async () => {
+  const group = await sync.newGroup(['민주', '신주'], '2004');
+  const a = await sync.dirFor(group);
+  const b = await sync.dirFor(JSON.parse(JSON.stringify(group)));
+  assert.deepStrictEqual(a, b);
+  assert.match(a.id, /^[A-Za-z0-9_-]{24}$/);
+  // 명단을 잠그고 풀 수 있는 열쇠
+  const sealed = await sync.seal({ people: group.people }, a.key);
+  assert.deepStrictEqual((await sync.open(sealed, a.key)).people, group.people);
+  const other = await sync.newGroup(['민주'], '2004');
+  assert.notStrictEqual((await sync.dirFor(other)).id, a.id);
+  const added = sync.newLink();
+  const merged = sync.mergePeople(group.people, group.people.concat([{ name: '지현', id: added.id, key: added.key }]));
+  assert.deepStrictEqual(merged.map((p) => p.name), ['민주', '신주', '지현']);
+  assert.strictEqual(sync.mergePeople(merged, group.people).length, 3);
 });

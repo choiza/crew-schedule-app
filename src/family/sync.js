@@ -119,28 +119,6 @@
       .then(function (data) { return JSON.parse(new TextDecoder().decode(data)); });
   }
 
-  /** 보기 링크. token 을 주면 올리기 링크가 된다. name 은 받는 폰에서 사람 이름으로 쓴다. */
-  function linkFor(baseUrl, id, key, name, token) {
-    return String(baseUrl).split('#')[0] + '#f=' + id + '&fk=' + key +
-      (name ? '&fn=' + encodeURIComponent(name) : '') +
-      (token ? '&ft=' + token : '');
-  }
-
-  /** 주소의 # 에서 가족 링크 번호, 푸는 열쇠, 이름, 쓰기 열쇠. 없으면 null. */
-  function fromHash(hash) {
-    var text = String(hash || '');
-    var id = /[#&]f=([A-Za-z0-9_-]{20,64})(?:&|$)/.exec(text);
-    var key = /[#&]fk=([A-Za-z0-9_-]{40,60})(?:&|$)/.exec(text);
-    if (!id || !key) return null;
-    var token = /[#&]ft=([A-Za-z0-9_-]{40,60})(?:&|$)/.exec(text);
-    var name = /[#&]fn=([^&]{1,120})(?:&|$)/.exec(text);
-    var decoded = null;
-    if (name) {
-      try { decoded = decodeURIComponent(name[1]).trim().slice(0, 20) || null; } catch (e) { decoded = null; }
-    }
-    return { id: id[1], key: key[1], token: token ? token[1] : null, name: decoded };
-  }
-
   function sha256Text(text) {
     return cryptoApi().subtle.digest('SHA-256', new TextEncoder().encode(text))
       .then(function (buffer) { return toBase64Url(new Uint8Array(buffer)); });
@@ -176,6 +154,28 @@
     } catch (e) {
       return null;
     }
+  }
+
+  /**
+   * 가족 명단 칸: 링크의 salt 와 확인값에서 칸 번호와 열쇠를 만든다.
+   * 링크를 가진 폰은 모두 명단을 읽고, 관리자가 사람을 더하면 모든 폰에 들어온다.
+   */
+  function dirFor(group) {
+    var seed = String(group.salt) + '|' + String(group.check);
+    return Promise.all([
+      sha256Text('crew-family-dir|' + seed),
+      sha256Text('crew-family-dirkey|' + seed)
+    ]).then(function (parts) { return { id: parts[0].slice(0, 24), key: parts[1] }; });
+  }
+
+  /** 명단 두 개를 칸 번호로 합친다. 먼저 있던 순서를 지키고 새 사람은 뒤에 붙인다. */
+  function mergePeople(mine, theirs) {
+    var out = (mine || []).slice();
+    (theirs || []).forEach(function (p) {
+      if (!p || !p.id || !p.key || !p.name) return;
+      if (!out.some(function (q) { return q.id === p.id; })) out.push({ name: String(p.name).trim().slice(0, 20), id: p.id, key: p.key });
+    });
+    return out.slice(0, 20);
   }
 
   /** 새 가족 묶음: 사람 이름들과 관리자 비밀번호로 칸 번호, 열쇠, 확인값을 만든다. */
@@ -238,13 +238,13 @@
     newLink: newLink,
     seal: seal,
     open: open,
-    linkFor: linkFor,
-    fromHash: fromHash,
     writeToken: writeToken,
     pinCheck: pinCheck,
     groupLinkFor: groupLinkFor,
     fromGroupHash: fromGroupHash,
     newGroup: newGroup,
+    dirFor: dirFor,
+    mergePeople: mergePeople,
     client: client
   };
 });

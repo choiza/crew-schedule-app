@@ -10,7 +10,6 @@
   var plan = C.plan, bus = C.bus, parser = C.parser, routes = C.routes;
   var ocr = C.ocr, routedata = C.routedata, airports = C.airports, flightstatus = C.flightstatus;
   var flighttime = C.flighttime;
-  var share = C.share;
   var sync = C.sync;
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
@@ -578,7 +577,7 @@
           '<small class="src src-' + esc(item.source === 'setting' ? 'setting' : item.source === 'estimate' ? 'estimate' : 'timetable') + '">' + esc(SOURCE_BLOCK[item.source]) + '</small></span>' +
         '<label class="visually-hidden" for="' + esc(id) + '">' + esc(item.code) + ' 비행시간 고치기</label>' +
         '<input id="' + esc(id) + '" class="hours-fix" type="text" inputmode="numeric" data-block-fix="' + esc(item.code) + '" placeholder="6:10" value="' +
-          esc(db.blockFix[item.code] != null ? Math.floor(db.blockFix[item.code] / 60) + ':' + pad(db.blockFix[item.code] % 60) : '') + '" autocomplete="off">' +
+          esc(db.blockFix[item.code] != null ? Math.floor(db.blockFix[item.code] / 60) + ':' + pad(db.blockFix[item.code] % 60) : '') + '" autocomplete="off"' + (canEdit() ? '' : ' disabled') + '>' +
         '</li>';
     }).join('');
     return '<header class="sheet-head"><p class="eyebrow">총 비행 시간</p>' +
@@ -824,8 +823,8 @@
     var broken = !!(mine && !mine.fit);
     var chip = raw ? (broken ? '예매한 차가 안 맞아요' : '예매 완료') : '추천';
     var warn = '';
-    var admin = canEdit();
-    if (!admin) {
+    var editable = canEdit();
+    if (!editable) {
       warn = lateText || '';
     } else if (broken) {
       warn = direction === 'out'
@@ -845,14 +844,14 @@
       '<ul class="bus-steps">' + steps.map(function (step) {
         return '<li><span>' + esc(step[0]) + '</span><b>' + esc(step[1]) + '</b></li>';
       }).join('') + '</ul>' +
-      (admin
+      (editable
         ? '<div class="btn-row">' + prefilledBooking(ev, shown, direction, !raw) + (raw
           ? '<button type="button" class="btn btn-grow" data-unbook="' + esc(key) + '">예매 취소</button>'
           : '<button type="button" class="btn btn-grow" data-book="' + esc(bookValue(ev, direction, shown)) + '">예매했어요</button>') +
           '</div>'
         : '') +
       (direction === 'out' ? '<div class="btn-row">' + alarmButton(shown, ev) + '</div>' : '') +
-      (raw || !admin ? '' : '<p class="note">' + esc(dateLabel(openDay)) + '부터 예매 알림을 드려요.</p>') +
+      (raw || !editable ? '' : '<p class="note">' + esc(dateLabel(openDay)) + '부터 예매 알림을 드려요.</p>') +
       '<details class="bus-more" data-tune="' + direction + '"' + (state.tuneOpen[direction] ? ' open' : '') + '>' +
         '<summary>자세히: 다른 시간 차, 시간 고치기</summary>' + moreHtml + '</details>' +
     '</div>';
@@ -1136,144 +1135,11 @@
 
   /* ---------------- 공유 링크 ---------------- */
 
-  var incomingShare = null; // 받은 링크: { token, payload }
 
   /** 링크가 가리킬 앱 주소. 공개 https 주소에서 만들면 그 주소, 앱이나 사내 주소면 설정의 공개 주소. */
   function shareBaseUrl() {
     if (!nativeApp() && location.protocol === 'https:') return location.origin + location.pathname;
     return (config.SHARE && config.SHARE.baseUrl) || (location.origin + location.pathname);
-  }
-
-  function clearShareHash() {
-    if (share && share.tokenFrom(location.hash) && window.history && history.replaceState) {
-      history.replaceState(null, '', location.pathname + location.search);
-    }
-  }
-
-  function shareMakerHtml(result) {
-    var head = '<header class="sheet-head"><p class="eyebrow">가족에게 공유</p>' +
-      '<h2 id="shareTitle" class="display">' + esc(NAME) + ' 스케줄 링크</h2>' +
-      '<p class="lede">이 폰에서 스케줄을 잠가 링크에 담습니다. 서버에는 올리지 않고, 링크를 받은 사람은 누르기만 하면 봅니다.</p></header>';
-    if (!db.entries.length) return head + '<p class="callout is-calm">공유할 넣은 스케줄이 없습니다. 캡처를 먼저 넣어 주세요.</p>';
-    if (!share || !share.available()) {
-      return head + '<p class="callout">이 주소(' + esc(location.host) + ')에서는 브라우저가 암호화를 막습니다. GitHub 주소(https)나 안드로이드 앱에서 만들어 주세요.</p>';
-    }
-    if (result) {
-      return head +
-        '<section class="block"><h3 class="block-title">링크</h3><p class="share-link">' + esc(result.link) + '</p>' +
-          '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-share-send>링크 보내기</button>' +
-          '<button type="button" class="btn btn-grow" data-share-copy="link">링크 복사</button></div>' +
-          '<p class="note">링크를 가진 사람은 누구나 볼 수 있으니 가족에게만 보내 주세요. 스케줄을 새로 넣거나 고치면 새 링크를 다시 보내야 합니다.</p></section>';
-    }
-    var boxes = monthsWithData().map(function (m) {
-      return '<label class="share-month"><input type="checkbox" data-share-month value="' + m + '" checked>' +
-        (+m.slice(0, 4)) + '년 ' + (+m.slice(5, 7)) + '월</label>';
-    }).join('');
-    return head +
-      '<section class="block"><h3 class="block-title">보낼 달</h3><div class="share-months">' + boxes + '</div></section>' +
-      '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="makeShare">링크 만들기</button></div>';
-  }
-
-  function receiveHtml(payload, error) {
-    var head = '<header class="sheet-head"><p class="eyebrow">공유받은 스케줄</p>';
-    if (!payload) {
-      if (!share || !share.available()) {
-        return head + '<h2 id="shareTitle" class="display">여기서는 열 수 없어요</h2>' +
-          '<p class="lede">이 주소에서는 브라우저가 암호 풀기를 막습니다. GitHub 주소(https)나 안드로이드 앱에서 링크를 열어 주세요.</p></header>';
-      }
-      return head + '<h2 id="shareTitle" class="display">비밀번호를 넣어 주세요</h2>' +
-        '<p class="lede">보낸 사람에게 따로 받은 숫자입니다.</p></header>' +
-        (error ? '<p class="callout">' + esc(error) + '</p>' : '') +
-        '<section class="block"><label class="visually-hidden" for="receivePin">비밀번호</label>' +
-          '<input id="receivePin" class="share-pin-input" type="text" inputmode="numeric" maxlength="8" autocomplete="off">' +
-          '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="openShare">열기</button>' +
-          '<button type="button" class="btn btn-grow" data-share-dismiss>그만두기</button></div></section>';
-    }
-    var months = {};
-    payload.entries.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
-    var monthText = Object.keys(months).sort().map(function (m) { return (+m.slice(5, 7)) + '월'; }).join(', ');
-    var name = shareName(payload);
-    var existing = people.list.filter(function (p) { return p.name === name; })[0];
-    return head + '<h2 id="shareTitle" class="display">' + esc(name) + ' 스케줄</h2>' +
-      '<p class="lede">' + esc(monthText) + ', ' + payload.entries.length + '건. 이 폰에만 저장됩니다.</p></header>' +
-      '<div class="btn-row">' +
-        (existing
-          ? '<button type="button" class="btn btn-primary btn-grow" data-share-apply="' + esc(existing.id) + '">' + esc(name) + '에 넣기</button>'
-          : '<button type="button" class="btn btn-primary btn-grow" data-share-apply="new">' + esc(name) + ' 추가해서 넣기</button>') +
-        '<button type="button" class="btn btn-grow" data-share-dismiss>그만두기</button></div>' +
-      '<p class="note">같은 달이 이미 있으면 받은 스케줄로 바꿉니다.</p>';
-  }
-
-  function shareName(payload) {
-    return String(payload.name || '공유받은 사람').trim().slice(0, 20) || '공유받은 사람';
-  }
-
-  /** 받은 스케줄이 이 앱의 모양인지 본다. 날짜와 코드가 이상한 줄은 버린다. */
-  function cleanShared(payload) {
-    if (!payload || payload.app !== 'crew-family-share' || !Array.isArray(payload.entries)) {
-      throw new Error('이 앱의 스케줄 링크가 아닙니다.');
-    }
-    payload.entries = payload.entries.filter(function (entry) {
-      return entry && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) && /^[A-Z0-9]{1,8}$/.test(String(entry.code || ''));
-    }).slice(0, 2000);
-    if (!payload.entries.length) throw new Error('링크에 스케줄이 없습니다.');
-    return payload;
-  }
-
-  /** 받은 링크 열기. 링크 안에 열쇠가 있으면 바로 풀고, 옛 링크처럼 없으면 비밀번호를 묻는다. */
-  function openReceive(token, key) {
-    incomingShare = { token: token, payload: null };
-    if (!$('shareSheet').open) $('shareSheet').showModal();
-    if (!key || !share.available()) {
-      $('shareBody').innerHTML = receiveHtml(null);
-      return;
-    }
-    $('shareBody').innerHTML = '<header class="sheet-head"><p class="eyebrow">공유받은 스케줄</p><h2 id="shareTitle" class="display">스케줄을 여는 중</h2></header>';
-    share.unpack(token, key).then(function (payload) {
-      incomingShare.payload = cleanShared(payload);
-      $('shareBody').innerHTML = receiveHtml(incomingShare.payload);
-    }).catch(function (err) {
-      $('shareBody').innerHTML = '<header class="sheet-head"><p class="eyebrow">공유받은 스케줄</p><h2 id="shareTitle" class="display">열 수 없어요</h2>' +
-        '<p class="lede">' + esc(err.message) + ' 보낸 사람에게 링크를 다시 받아 주세요.</p></header>' +
-        '<div class="btn-row"><button type="button" class="btn btn-grow" data-share-dismiss>닫기</button></div>';
-    });
-  }
-
-  function applyShare(targetId) {
-    var payload = incomingShare.payload;
-    var name = shareName(payload);
-    var id = targetId;
-    if (id === 'new') {
-      id = 'u' + Date.now().toString(36);
-      people.list.push({ id: id, name: name });
-      savePeople();
-    }
-    var mine = id === people.current;
-    var target = mine ? db : {};
-    if (!mine) {
-      try { target = JSON.parse(localStorage.getItem(keyFor(id)) || '{}') || {}; } catch (e) { target = {}; }
-    }
-    var months = {};
-    payload.entries.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
-    target.entries = (target.entries || []).filter(function (entry) { return !months[entry.date.slice(0, 7)]; }).concat(payload.entries);
-    target.words = Object.assign({}, target.words || {}, payload.words || {});
-    target.routeFix = Object.assign({}, target.routeFix || {}, payload.routeFix || {});
-    target.overrides = Object.assign({}, target.overrides || {}, payload.overrides || {});
-    if (mine) {
-      save();
-    } else {
-      try { localStorage.setItem(keyFor(id), JSON.stringify(target)); } catch (e) { return toast('이 폰에 저장하지 못했습니다.'); }
-    }
-    clearShareHash();
-    incomingShare = null;
-    $('shareSheet').close();
-    var first = Object.keys(months).sort()[0];
-    if (!mine) return switchPerson(id, name + ' 스케줄을 넣었습니다.');
-    state.year = +first.slice(0, 4);
-    state.month = +first.slice(5, 7);
-    render();
-    go('calendar');
-    toast(name + ' 스케줄을 넣었습니다.');
   }
 
   /* ---------------- 가족 링크 (늘 최신) ---------------- */
@@ -1312,8 +1178,91 @@
     return !(me && me.follow) || !!writeLinkFor(me);
   }
 
+  function saveGroup(group) {
+    try { localStorage.setItem(GROUP_KEY, JSON.stringify(group)); return true; } catch (e) { return false; }
+  }
+
+  /** 가족 명단의 사람을 이 폰 사람 목록에 넣는다. 새로 들어온 사람 이름을 돌려준다. */
+  function adoptMembers(group) {
+    var added = [];
+    group.people.forEach(function (member, index) {
+      if (people.list.some(function (p) { return p.follow && p.follow.id === member.id; })) return;
+      var person = people.list.filter(function (p) { return p.name === member.name && !p.follow; })[0];
+      if (!person) {
+        person = { id: 'u' + Date.now().toString(36) + index, name: member.name };
+        people.list.push(person);
+        added.push(member.name);
+      }
+      person.follow = { id: member.id, key: member.key, at: null, error: '' };
+    });
+    savePeople();
+    return added;
+  }
+
+  /** 관리자 폰: 비밀번호로 명단 칸과 사람마다 쓰기 열쇠를 채운다. */
+  function ensureTokens() {
+    var m = managerInfo();
+    var group = groupInfo();
+    if (!m || !m.pin || !group) return Promise.resolve(m);
+    return sync.dirFor(group).then(function (dir) {
+      var ids = group.people.map(function (p) { return p.id; }).concat([dir.id]);
+      var missing = ids.filter(function (id) { return !m.tokens[id]; });
+      return Promise.all(missing.map(function (id) {
+        return sync.writeToken(id, m.pin).then(function (token) { m.tokens[id] = token; });
+      })).then(function () {
+        if (missing.length) localStorage.setItem(MANAGER_KEY, JSON.stringify(m));
+        return m;
+      });
+    });
+  }
+
+  /**
+   * 가족 명단: 모든 폰이 받아 새 사람을 넣고, 관리자 폰은 이 폰에만 있는 사람이 있으면 올린다.
+   * 지운 사람은 명단에서 빼지 않는다. 한 폰에서 지워도 다른 폰에는 그대로 있다.
+   */
+  function syncDirectory() {
+    var group = groupInfo();
+    if (!group || !familyOn()) return Promise.resolve();
+    return sync.dirFor(group).then(function (dir) {
+      return familyApi().get(dir.id).then(function (row) {
+        return row ? sync.open(row.cipher, dir.key).then(function (d) { return d && d.people; }) : null;
+      }).then(function (theirs) {
+        var merged = sync.mergePeople(group.people, theirs || []);
+        var grew = merged.length > group.people.length;
+        if (grew) {
+          group.people = merged;
+          saveGroup(group);
+        }
+        var added = adoptMembers(group);
+        if (added.length) {
+          toast('가족 링크에 새 사람이 들어왔습니다: ' + added.join(', '));
+          render();
+          if ($('peopleSheet').open) renderPeople();
+        }
+        var serverCount = (theirs || []).length;
+        if (!isManager() || serverCount >= merged.length) return null;
+        return ensureTokens().then(function (m) {
+          var token = m && m.tokens[dir.id];
+          if (!token) return null;
+          return sync.seal({ app: 'crew-family-dir', v: 1, people: merged }, dir.key)
+            .then(function (cipher) { return familyApi().put(dir.id, cipher, token); });
+        });
+      });
+    });
+  }
+
+  /** 복사해 온 가족 링크(#g=) 글자를 연다 */
+  function openLinkText(text) {
+    var hashAt = text.indexOf('#');
+    var group = sync && hashAt >= 0 && sync.fromGroupHash(text.slice(hashAt));
+    if (!group) return toast('가족 링크가 아닙니다. 링크 전체를 복사해 주세요.');
+    return joinGroup(group);
+  }
+
   function joinGroup(group) {
-    try { localStorage.setItem(GROUP_KEY, JSON.stringify(group)); } catch (e) { return toast('이 폰에 저장하지 못했습니다.'); }
+    var old = groupInfo();
+    if (old && old.salt === group.salt) group.people = sync.mergePeople(old.people, group.people);
+    if (!saveGroup(group)) return toast('이 폰에 저장하지 못했습니다.');
     var firstId = null;
     group.people.forEach(function (member, index) {
       var person = people.list.filter(function (p) { return p.name === member.name; })[0];
@@ -1342,10 +1291,6 @@
 
   function familyApi() { return sync.client(config.SYNC); }
 
-  function personById(id) {
-    return people.list.filter(function (p) { return p.id === id; })[0] || null;
-  }
-
   function clockText(iso) {
     if (!iso) return '아직 없음';
     var d = new Date(iso);
@@ -1353,26 +1298,16 @@
   }
 
   function familyPayload() {
-    return { app: 'crew-family-sync', v: 1, name: NAME, entries: db.entries, words: db.words, routeFix: db.routeFix, overrides: db.overrides, booked: db.booked || {} };
+    return { app: 'crew-family-sync', v: 1, name: NAME, entries: db.entries, words: db.words, routeFix: db.routeFix, overrides: db.overrides, booked: db.booked || {}, blockFix: db.blockFix || {} };
   }
 
-  /**
-   * 스케줄을 넣거나 고칠 때마다 몇 초 뒤 잠가서 올린다. 받는 사람의 폰은 올리지 않는다.
-   * 넣은 스케줄이 있으면 가족 링크를 저절로 만든다. 사람이 끈 링크는 다시 켤 때까지 만들지 않는다.
-   */
+  /** 관리자 폰에서 가족 링크 사람의 스케줄을 넣거나 고치면 3초 뒤 잠가서 올린다. */
   function scheduleFamilyUpload() {
     if (!db || !familyOn() || NAME === TEST_NAME) return;
     var me = currentPerson();
-    if (me && me.follow) {
-      if (!writeLinkFor(me)) return;
-      me.follow.dirty = true;
-      savePeople();
-    } else if (db.familyLink) {
-      db.familyLink.dirty = true;
-      saveQuiet();
-    } else {
-      return;
-    }
+    if (!writeLinkFor(me)) return;
+    me.follow.dirty = true;
+    savePeople();
     var personId = people.current;
     clearTimeout(familyTimer);
     familyTimer = setTimeout(function () { uploadFamily(false, personId); }, 3000);
@@ -1387,9 +1322,7 @@
     // 3초 사이 다른 사람으로 바꿨으면 올리지 않는다. 그 사람을 다시 볼 때 올린다.
     if (personId && personId !== people.current) return Promise.resolve();
     var me = currentPerson();
-    var viaGroup = !!(me && me.follow);
-    var link = viaGroup ? writeLinkFor(me) : db.familyLink;
-    var holder = viaGroup ? me.follow : db.familyLink;
+    var link = writeLinkFor(me);
     if (!link) {
       if (manual) toast('이 폰은 관리자가 아니라 올릴 수 없습니다.');
       return Promise.resolve();
@@ -1399,15 +1332,15 @@
     return sync.seal(familyPayload(), link.key)
       .then(function (cipher) { return familyApi().put(link.id, cipher, link.token); })
       .then(function (serverTime) {
-        holder.sentAt = typeof serverTime === 'string' ? serverTime : new Date().toISOString();
-        if (viaGroup) holder.at = holder.sentAt;
-        holder.error = '';
-        holder.dirty = false;
-        if (viaGroup) savePeople(); else saveQuiet();
+        me.follow.sentAt = typeof serverTime === 'string' ? serverTime : new Date().toISOString();
+        me.follow.at = me.follow.sentAt;
+        me.follow.error = '';
+        me.follow.dirty = false;
+        savePeople();
         if (manual) toast('가족에게 최신 스케줄을 올렸습니다.');
       }, function (err) {
-        holder.error = err.message;
-        if (viaGroup) savePeople(); else saveQuiet();
+        me.follow.error = err.message;
+        savePeople();
         if (manual) toast(err.message);
       })
       .then(function () {
@@ -1416,43 +1349,17 @@
       });
   }
 
-  /**
-   * 올리는 폰: 못 올린 변경이 있으면 다시 올린다. 없으면 다른 폰이 더 새로 올렸는지 보고 받아 온다.
-   * 같은 사람을 폰 두 대에서 올릴 때 오래된 폰이 새 스케줄을 덮어쓰지 않게 한다.
-   */
-  function syncWriter() {
-    var link = db && db.familyLink;
-    var me = currentPerson();
-    if (!link || !familyOn() || (me && me.follow) || NAME === TEST_NAME) return Promise.resolve();
-    if (link.dirty) return uploadFamily(false);
-    return familyApi().get(link.id).then(function (row) {
-      if (!row) return uploadFamily(false);
-      if (link.sentAt && row.updatedAt && Date.parse(row.updatedAt) <= Date.parse(link.sentAt) + 1000) return null;
-      return sync.open(row.cipher, link.key).then(function (payload) {
-        payload = cleanFamily(payload);
-        if (!payload.entries.length) return null;
-        db.entries = payload.entries;
-        db.words = payload.words || {};
-        db.routeFix = payload.routeFix || {};
-        db.overrides = payload.overrides || {};
-        db.booked = plan.keepBookings(Object.assign({}, db.booked || {}, payload.booked || {}), db.entries);
-        link.sentAt = row.updatedAt;
-        saveQuiet();
-        render();
-      });
-    }).catch(function (err) {
-      link.error = err.message;
-      saveQuiet();
-    });
-  }
-
   /** 받는 사람들의 최신 스케줄을 받아 그 사람 자리에 넣는다. */
   function pullFamilies(manual) {
+    if (!familyOn()) return pullPeople(manual);
+    return syncDirectory().catch(function () { /* 명단을 못 받아도 스케줄은 받는다 */ }).then(function () { return pullPeople(manual); });
+  }
+
+  function pullPeople(manual) {
     if (!familyOn()) {
       if (manual) toast('가족 링크 저장소가 연결되지 않았습니다.');
       return Promise.resolve();
     }
-    syncWriter();
     var followers = people.list.filter(function (p) { return p.follow; });
     return Promise.all(followers.map(function (person) {
       var mine = person.id === people.current;
@@ -1481,6 +1388,7 @@
         target.words = payload.words || {};
         target.routeFix = payload.routeFix || {};
         target.overrides = payload.overrides || {};
+        target.blockFix = payload.blockFix || {};
         target.booked = plan.keepBookings(Object.assign({}, target.booked || {}, payload.booked || {}), payload.entries);
         if (mine) saveQuiet(); else localStorage.setItem(keyFor(person.id), JSON.stringify(target));
         person.follow.at = new Date().toISOString();
@@ -1516,207 +1424,46 @@
       (note ? '<p class="note">' + note + '</p>' : '') + '</div>';
   }
 
-  /** 지금 사람의 가족 링크. group: 가족 모두, view: 가족에게, upload: 본인이나 다른 올리는 폰에 */
-  function familyUrl(kind) {
-    if (kind === 'group') {
-      var g = groupInfo();
-      return g ? sync.groupLinkFor(shareBaseUrl(), g) : null;
-    }
-    var me = currentPerson();
-    if (me && me.follow) return sync.linkFor(shareBaseUrl(), me.follow.id, me.follow.key, NAME);
-    var link = db.familyLink;
-    if (!link) return null;
-    return sync.linkFor(shareBaseUrl(), link.id, link.key, NAME, kind === 'upload' ? link.token : null);
+  /** 가족 링크 주소. 관리자가 가족에게 보낸다. */
+  function familyUrl() {
+    var g = groupInfo();
+    return g ? sync.groupLinkFor(shareBaseUrl(), g) : null;
   }
 
+  /** 설정의 가족 링크 칸: 링크 넣기 전, 보는 폰, 관리자 폰 */
   function renderFamilyBox() {
-    // 가족 링크를 넣은 폰: 보는 사람은 관리자 켜기만, 관리자는 링크 보내기와 사람 관리까지
-    var joined = !!groupInfo();
-    var manager = isManager();
-    ['peopleRow', 'shareButtons', 'oneShareNote'].forEach(function (id) {
-      if ($(id)) $(id).hidden = joined && !manager;
-    });
-    if ($('oneShareBtn')) $('oneShareBtn').hidden = joined;
-    if ($('oneShareNote') && joined) $('oneShareNote').hidden = true;
     var box = $('familyLinkBox');
     if (!box) return;
-    var me = currentPerson();
-    var html = '<h4 class="choices-title">가족 링크 (늘 최신)</h4>';
     if (!sync || !config.SYNC || !sync.enabled(config.SYNC)) {
-      box.innerHTML = html + '<p class="note">링크 하나로 가족이 늘 최신 스케줄을 보려면 저장소 연결이 필요합니다. 아직 연결되지 않았습니다.</p>';
+      box.innerHTML = '<p class="note">가족 링크 저장소가 연결되지 않았습니다.</p>';
       return;
     }
     if (!sync.available()) {
-      box.innerHTML = html + '<p class="note">이 주소(' + esc(location.host) + ')에서는 브라우저가 암호화를 막습니다. GitHub 주소나 안드로이드 앱에서 열어 주세요.</p>';
+      box.innerHTML = '<p class="note">이 주소(' + esc(location.host) + ')에서는 브라우저가 암호화를 막습니다. GitHub 주소나 안드로이드 앱에서 열어 주세요.</p>';
       return;
     }
     var group = groupInfo();
-    if (group) {
-      var names = group.people.map(function (p) { return p.name; }).join(', ');
-      var mine = me && me.follow;
-      box.innerHTML = html +
-        '<p class="note">가족 링크로 ' + esc(names) + ' 스케줄을 봅니다. 앱을 열 때와 30분마다 최신으로 바뀝니다.' +
-          (mine ? ' ' + esc(NAME) + ' 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) : '') + '</p>' +
-        (isManager() ? linkRow('가족 링크 (모두 같은 링크)', familyUrl('group'), 'group', '가족에게 이 링크 하나만 보내면 됩니다. 링크를 가진 사람은 모두 볼 수 있습니다.') : '') +
-        (mine && me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
-        (isManager()
-          ? '<p class="note"><b>이 폰은 관리자입니다.</b> 캡처를 넣거나 일정을 고치면 가족 모두에게 올라가고, 마지막에 올린 스케줄로 맞춰집니다.</p>' +
-            '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
-            (mine ? '<button type="button" class="btn btn-grow" data-family-push>지금 올리기</button>' : '') + '</div>' +
-            '<div class="btn-row"><button type="button" class="btn btn-grow btn-quiet" data-manager-off>관리자 끄기</button></div>'
-          : '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
-            '<button type="button" class="btn btn-grow" data-manager-on>관리자 켜기</button></div>' +
-            '<p class="note">스케줄을 올리거나 고치려면 관리자를 켜고 비밀번호를 넣습니다. 한 번 켜면 이 폰에서 계속 유지됩니다.</p>');
+    if (!group) {
+      box.innerHTML = '<p class="note">가족에게 받은 가족 링크를 복사한 뒤 아래 버튼을 누르면 가족 스케줄이 들어오고, 앱을 열 때마다 최신으로 바뀝니다.</p>' +
+        '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-open-receive>받은 링크 넣기</button></div>';
       return;
     }
-    if (me && me.follow) {
-      box.innerHTML = html +
-        '<p class="note">' + esc(NAME) + ' 스케줄을 가족 링크로 받고 있습니다. 앱을 열 때와 30분마다 최신으로 바뀝니다. 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) + '</p>' +
-        linkRow('보기 링크 (가족에게)', familyUrl('view'), 'view', '다른 가족에게 이 링크를 보내면 같이 봅니다.') +
-        (me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
-        '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
-        '<button type="button" class="btn btn-grow btn-quiet" data-family-unfollow>받기 그만두기</button></div>';
-      return;
-    }
-    var link = db.familyLink;
-    if (!link) {
-      box.innerHTML = html + (db.familyOff
-        ? '<p class="note">가족 링크를 꺼 두었습니다. 다시 켜면 새 링크가 생기니 가족에게 새로 보내 주세요.</p>' +
-          '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-make>가족 링크 다시 켜기</button></div>'
-        : '<p class="note">스케줄을 넣으면 가족 링크가 저절로 생기고, 넣거나 고칠 때마다 이 폰에서 잠가 올립니다. 가족은 링크를 한 번만 받으면 늘 최신을 봅니다.</p>' +
-          (db.entries.length ? '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-make>가족 링크 만들기</button></div>' : ''));
-      return;
-    }
-    box.innerHTML = html +
-      '<p class="note">이 폰은 ' + esc(NAME) + ' 스케줄을 올리는 폰입니다. 스케줄을 넣거나 고치면 자동으로 올라가고, 누가 올리든 마지막에 올린 스케줄로 모두 맞춰집니다. 마지막으로 올린 때: ' + esc(clockText(link.sentAt)) + '</p>' +
-      linkRow('보기 링크 (가족에게)', familyUrl('view'), 'view', '받은 가족은 볼 수만 있습니다.') +
-      linkRow('올리기 링크 (' + NAME + ' 본인이나 같이 올릴 폰에만)', familyUrl('upload'), 'upload', '이 링크를 가진 사람은 스케줄을 바꿀 수 있습니다.') +
-      (link.error ? '<p class="callout">' + esc(link.error) + '</p>' : '') +
-      '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-push>지금 올리기</button>' +
-        '<button type="button" class="btn btn-grow btn-quiet" data-family-stop>가족 링크 끄기</button></div>';
-  }
-
-  var incomingFamily = null; // { id, key, token, name, payload, empty }
-
-  function familyReceiveHtml(error) {
-    var head = '<header class="sheet-head"><p class="eyebrow">' + (incomingFamily && incomingFamily.token ? '올리기 링크' : '가족 링크') + '</p>';
-    if (error) {
-      return head + '<h2 id="shareTitle" class="display">열 수 없어요</h2><p class="lede">' + esc(error) + '</p></header>' +
-        '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-dismiss>닫기</button></div>';
-    }
-    if (!incomingFamily.payload) {
-      return head + '<h2 id="shareTitle" class="display">스케줄을 확인하는 중</h2></header>';
-    }
-    var payload = incomingFamily.payload;
-    var name = shareName(payload);
-    var existing = people.list.filter(function (p) { return p.name === name; })[0];
-    var target = existing ? existing.id : 'new';
-    var months = {};
-    payload.entries.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
-    var monthText = Object.keys(months).sort().map(function (m) { return (+m.slice(5, 7)) + '월'; }).join(', ');
-    if (incomingFamily.token) {
-      return head + '<h2 id="shareTitle" class="display">' + esc(name) + ' 스케줄 올리기</h2>' +
-        '<p class="lede">이 폰을 ' + esc(name) + ' 스케줄을 올리는 폰으로 정합니다. 캡처를 넣거나 고치면 잠가서 자동으로 올리고, 가족은 보기 링크로 늘 최신을 봅니다.</p></header>' +
-        (monthText ? '<p class="note">이미 올라온 스케줄(' + esc(monthText) + ')을 이 폰으로 가져옵니다.</p>' : '') +
-        '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-accept="' + esc(target) + '">' + esc(name) + ' 스케줄 올리는 폰으로 정하기</button>' +
-          '<button type="button" class="btn btn-grow" data-family-dismiss>그만두기</button></div>' +
-        '<p class="note">이 링크는 ' + esc(name) + ' 본인만 쓰세요. 링크를 가진 사람은 스케줄을 바꿀 수 있습니다.</p>';
-    }
-    return head + '<h2 id="shareTitle" class="display">' + esc(name) + ' 스케줄</h2>' +
-      '<p class="lede">' + (monthText ? esc(monthText) + '. ' : '아직 올라온 스케줄이 없습니다. ') + '이 폰에서 늘 최신으로 받아 봅니다.</p></header>' +
-      '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-accept="' + esc(target) + '">' +
-        esc(name) + (existing ? '로 받기 시작' : ' 추가해서 받기 시작') + '</button>' +
-        '<button type="button" class="btn btn-grow" data-family-dismiss>그만두기</button></div>' +
-      '<p class="note">받는 사람의 스케줄은 보낸 사람 것으로 계속 바뀝니다. 이 폰에서 고친 내용은 다음에 받을 때 덮어써집니다.</p>';
-  }
-
-  /** 복사해 온 링크 글자를 연다: 가족 링크(#f=) 또는 한 번 보내는 링크(#s=) */
-  function openLinkText(text) {
-    var hashAt = text.indexOf('#');
-    var group = sync && hashAt >= 0 && sync.fromGroupHash(text.slice(hashAt));
-    if (group) return joinGroup(group);
-    var family = sync && hashAt >= 0 && sync.fromHash(text.slice(hashAt));
-    if (family) return openFamilyReceive(family);
-    var token = share && share.tokenFrom(text);
-    if (!token) return toast('스케줄 링크가 아닙니다. 링크 전체를 복사해 주세요.');
-    return openReceive(token, share.keyFrom(text));
-  }
-
-  function openFamilyReceive(found) {
-    incomingFamily = { id: found.id, key: found.key, token: found.token || null, name: found.name || null, payload: null };
-    if (!$('shareSheet').open) $('shareSheet').showModal();
-    if (!familyOn()) {
-      $('shareBody').innerHTML = familyReceiveHtml(sync && sync.available()
-        ? '이 앱에 가족 링크 저장소가 연결되지 않았습니다. 앱을 새로 받아 주세요.'
-        : '이 주소에서는 브라우저가 암호화를 막습니다. GitHub 주소나 안드로이드 앱에서 링크를 열어 주세요.');
-      return;
-    }
-    $('shareBody').innerHTML = familyReceiveHtml();
-    familyApi().get(found.id).then(function (row) {
-      // 아직 아무도 올리지 않은 링크: 이름만으로 받기 시작하거나 올리는 폰으로 정한다
-      if (!row) return { app: 'crew-family-sync', v: 1, name: found.name || '가족', entries: [], empty: true };
-      return sync.open(row.cipher, found.key);
-    }).then(function (payload) {
-      if (found.name && !payload.name) payload.name = found.name;
-      incomingFamily.payload = cleanFamily(payload);
-      $('shareBody').innerHTML = familyReceiveHtml();
-    }).catch(function (err) {
-      $('shareBody').innerHTML = familyReceiveHtml(err.message);
-    });
-  }
-
-  function acceptFamily(targetId) {
-    var payload = incomingFamily.payload;
-    var name = shareName(payload);
-    var id = targetId;
-    if (id === 'new') {
-      id = 'u' + Date.now().toString(36);
-      people.list.push({ id: id, name: name });
-    }
-    var person = personById(id);
-    var writer = !!incomingFamily.token;
-    if (writer) {
-      delete person.follow;
-    } else {
-      person.follow = { id: incomingFamily.id, key: incomingFamily.key, at: new Date().toISOString(), error: '' };
-    }
-    savePeople();
-    var target = { entries: payload.entries, words: payload.words || {}, routeFix: payload.routeFix || {}, overrides: payload.overrides || {} };
-    var incomingBooked = payload.booked || {};
-    if (writer) {
-      target.familyLink = { id: incomingFamily.id, key: incomingFamily.key, token: incomingFamily.token };
-      delete target.familyOff;
-    }
-    if (id === people.current) {
-      if (payload.entries.length) {
-        db.entries = target.entries; db.words = target.words; db.routeFix = target.routeFix; db.overrides = target.overrides;
-        db.booked = plan.keepBookings(Object.assign({}, db.booked || {}, incomingBooked), db.entries);
-      }
-      if (writer) { db.familyLink = target.familyLink; delete db.familyOff; }
-      saveQuiet();
-    } else {
-      var old = {};
-      try { old = JSON.parse(localStorage.getItem(keyFor(id)) || '{}') || {}; } catch (e) { old = {}; }
-      if (!payload.entries.length) {
-        // 아직 올라온 스케줄이 없으면 이 폰에 있던 스케줄을 지우지 않는다. 올리는 폰이면 그대로 올린다.
-        delete target.entries; delete target.words; delete target.routeFix; delete target.overrides;
-      } else {
-        target.booked = plan.keepBookings(Object.assign({}, old.booked || {}, incomingBooked), target.entries);
-      }
-      localStorage.setItem(keyFor(id), JSON.stringify(Object.assign(old, target)));
-    }
-    incomingFamily = null;
-    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + location.search);
-    $('shareSheet').close();
-    var done = writer ? name + ' 스케줄을 올리는 폰으로 정했습니다. 캡처를 넣으면 가족에게 올라갑니다.' : name + ' 스케줄을 받기 시작했습니다.';
-    if (id !== people.current) {
-      switchPerson(id, done);
-    } else {
-      render();
-      go('calendar');
-      toast(done);
-    }
-    if (writer) scheduleFamilyUpload();
+    var me = currentPerson();
+    var mine = me && me.follow;
+    var manager = isManager();
+    box.innerHTML =
+      '<p class="note">가족 링크로 ' + esc(group.people.map(function (p) { return p.name; }).join(', ')) + ' 스케줄을 봅니다. 앱을 열 때와 30분마다 최신으로 바뀝니다.' +
+        (mine ? ' ' + esc(NAME) + ' 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) : '') + '</p>' +
+      (mine && me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
+      (manager
+        ? linkRow('가족 링크 (모두 같은 링크)', familyUrl(), 'group', '가족에게 이 링크 하나만 보내면 됩니다. 링크를 가진 사람은 모두 볼 수 있습니다.') +
+          '<p class="note"><b>이 폰은 관리자입니다.</b> 캡처를 넣거나 일정을 고치면 가족 모두에게 올라가고, 마지막에 올린 스케줄로 맞춰집니다. 제목을 눌러 사람을 추가하면 가족 모두의 폰에 들어갑니다.</p>' +
+          '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
+          (mine ? '<button type="button" class="btn btn-grow" data-family-push>지금 올리기</button>' : '') + '</div>' +
+          '<div class="btn-row"><button type="button" class="btn btn-grow btn-quiet" data-manager-off>관리자 끄기</button></div>'
+        : '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
+          '<button type="button" class="btn btn-grow" data-manager-on>관리자 켜기</button></div>' +
+          '<p class="note">스케줄을 올리거나 고치려면 관리자를 켜고 비밀번호를 넣습니다. 한 번 켜면 이 폰에서 계속 유지됩니다.</p>');
   }
 
   /* ---------------- 함께 보기 ---------------- */
@@ -1747,6 +1494,36 @@
     return plan.buildMonth(year, month, own, { timeOf: timeOfOther, words: raw.words || {} });
   }
 
+  /** 함께 보기 달력: 같이 쉬는 날은 초록, 같은 날 같은 도시는 도시 이름. 날짜를 누르면 그날 달력으로 간다. */
+  function togetherCalendar(year, month, cmp) {
+    var both = {}, same = {};
+    cmp.together.forEach(function (row) { both[row.date] = row; });
+    cmp.samePlace.forEach(function (row) { (same[row.date] = same[row.date] || []).push(row); });
+    var first = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+    var days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    var cells = [];
+    for (var blank = 0; blank < first; blank++) cells.push('<span class="tg-cell is-blank" aria-hidden="true"></span>');
+    for (var d = 1; d <= days; d++) {
+      var iso = year + '-' + (month < 10 ? '0' : '') + month + '-' + (d < 10 ? '0' : '') + d;
+      var off = both[iso], here = same[iso];
+      var label = [];
+      if (off) label.push('같이 휴무: ' + off.names.join(', '));
+      if (here) here.forEach(function (row) { label.push(row.city + ': ' + row.names.join(', ')); });
+      var weekday = (first + d - 1) % 7;
+      cells.push('<button type="button" class="tg-cell' + (off ? ' is-both' : '') + (here ? ' is-same' : '') +
+        (weekday === 0 ? ' is-sun' : weekday === 6 ? ' is-sat' : '') + (iso === todayIso() ? ' is-today' : '') +
+        '" data-date="' + iso + '" aria-label="' + esc(dateLabel(iso) + (label.length ? ', ' + label.join('. ') : '')) + '">' +
+        '<b>' + d + '</b>' +
+        (off ? '<small class="tg-off">휴무</small>' : '') +
+        (here ? here.map(function (row) { return '<small class="tg-city">' + (row.flag ? row.flag + ' ' : '') + esc(row.city) + '</small>'; }).join('') : '') +
+        '</button>');
+    }
+    return '<div class="tg-cal" role="group" aria-label="' + year + '년 ' + month + '월 함께 보기">' +
+      ['일', '월', '화', '수', '목', '금', '토'].map(function (w, i) {
+        return '<span class="tg-week' + (i === 0 ? ' is-sun' : i === 6 ? ' is-sat' : '') + '">' + w + '</span>';
+      }).join('') + cells.join('') + '</div>';
+  }
+
   function togetherHtml(year, month) {
     var list = visiblePeople().map(function (person) {
       var model = personModel(person, year, month);
@@ -1764,18 +1541,11 @@
       return '<li><b>' + esc(row.name) + '</b><span>' + esc(row.text || '없음') + '</span><small>' + row.days.length + '일</small></li>';
     }).join('') + '</ul>';
     if (list.length < 2) {
-      return html + '<p class="note">스케줄을 넣은 사람이 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 보여요. 사람은 "스케줄 보는 사람"에서 추가합니다.</p>';
+      return html + '<p class="note">스케줄을 넣은 사람이 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 보여요. 사람은 관리자 폰에서 제목을 눌러 추가합니다.</p>';
     }
-    html += '<h4 class="choices-title">같이 쉬는 날</h4>' + (cmp.together.length
-      ? '<ul class="together-list">' + cmp.together.map(function (row) {
-          return '<li><b>' + esc(dateLabel(row.date, true)) + '</b><span>' + esc(row.names.join(', ')) + '</span></li>';
-        }).join('') + '</ul>'
-      : '<p class="note">이 달에는 같이 쉬는 날이 없어요.</p>');
-    html += '<h4 class="choices-title">같은 날 같은 곳</h4>' + (cmp.samePlace.length
-      ? '<ul class="together-list">' + cmp.samePlace.map(function (row) {
-          return '<li><b>' + esc(dateLabel(row.date, true)) + '</b><span>' + (row.flag ? row.flag + ' ' : '') + esc(row.city) + '</span><small>' + esc(row.names.join(', ')) + '</small></li>';
-        }).join('') + '</ul>'
-      : '<p class="note">이 달에는 같은 날 같은 도시에 있는 날이 없어요.</p>');
+    html += togetherCalendar(year, month, cmp) +
+      '<p class="together-legend"><span class="tg-key is-both"></span>같이 휴무<span class="tg-key is-same"></span>같은 날 같은 도시</p>' +
+      (cmp.together.length || cmp.samePlace.length ? '' : '<p class="note">이 달에는 같이 쉬는 날도, 같은 도시에 있는 날도 없어요.</p>');
     return html;
   }
 
@@ -2164,7 +1934,7 @@
       if (day.kind === 'away') lines = lines.concat(allDay('away-' + day.date, day.date, NAME + ' ' + day.place.city + ' 체류'));
     });
     if (!lines.length) return toast('이 달에는 캘린더에 넣을 일정이 없어요.');
-    offerCalendar('minju-' + prefix + '.ics', calendarFile(lines));
+    offerCalendar(NAME + '-' + prefix + '.ics', calendarFile(lines));
   }
 
   /* ---------------- 휴일표 ---------------- */
@@ -2230,7 +2000,7 @@
     model.days.forEach(function (day) {
       rows.push(day.date + ',' + day.weekdayName + ',' + TYPE_LABEL[plan.dayType(day)]);
     });
-    saveFile('minju-holidays-' + model.year + pad(model.month) + '.csv',
+    saveFile(NAME + '-holidays-' + model.year + pad(model.month) + '.csv',
       new Blob(['\uFEFF' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
   }
 
@@ -2489,7 +2259,7 @@
 
       canvas.toBlob(function (blob) {
         if (!blob) return toast('이미지를 만들지 못했습니다.');
-        saveFile('minju-schedule-' + model.year + pad(model.month) + '.png', blob);
+        saveFile(NAME + '-schedule-' + model.year + pad(model.month) + '.png', blob);
       }, 'image/png');
     });
   }
@@ -2989,30 +2759,34 @@
 
   function renderPeople() {
     var shown = visiblePeople();
+    var joined = !!groupInfo();
+    var manager = isManager();
+    var viewer = joined && !manager;
     var list = shown.map(function (person) {
       var on = person.id === people.current;
+      var where = person.follow ? '가족 링크' : person.name === TEST_NAME ? '테스트' : '이 폰에만';
       return '<li class="person' + (on ? ' is-current' : '') + '">' +
         '<button type="button" class="person-main" data-person-switch="' + esc(person.id) + '"' + (on ? ' aria-current="true"' : '') + '>' +
-          '<span class="person-dot" aria-hidden="true"></span><span class="person-name">' + esc(person.name) + '</span>' +
+          '<span class="person-dot" aria-hidden="true"></span><span class="person-name">' + esc(person.name) + '<small>' + esc(where) + '</small></span>' +
           (on ? '<span class="route-chip">보는 중</span>' : '') + '</button>' +
-        '<button type="button" class="icon-btn" data-person-rename="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 이름 바꾸기">' + ICON.edit + '</button>' +
-        (shown.length > 1 ? '<button type="button" class="icon-btn" data-person-delete="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 지우기">' + ICON.trash + '</button>' : '') +
+        (viewer ? '' : '<button type="button" class="icon-btn" data-person-rename="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 이름 바꾸기">' + ICON.edit + '</button>') +
+        (shown.length > 1 ? '<button type="button" class="btn btn-small btn-quiet" data-person-delete="' + esc(person.id) + '">지우기</button>' : '') +
         '</li>';
     }).join('');
+    var linkBlock = !joined
+      ? '<p class="note">가족 링크는 설정의 "가족 링크, 관리자"에서 넣습니다.</p>'
+      : manager
+        ? '<p class="note">가족 링크 보내기와 관리자 끄기는 설정의 "가족 링크, 관리자"에 있습니다.</p>'
+        : '<p class="note">가족 링크로 받아 봅니다. 스케줄은 관리자 폰에서 올립니다.</p>';
     $('peopleBody').innerHTML =
       '<header class="sheet-head"><p class="eyebrow">누구 스케줄</p>' +
       '<h2 id="peopleTitle" class="display">스케줄 보는 사람</h2>' +
-      '<p class="lede">한 폰에서 여러 사람의 스케줄을 따로 볼 수 있습니다. 출발지와 버스 시간 설정도 사람마다 따로 저장됩니다.</p></header>' +
+      '<p class="lede">볼 사람을 누르면 그 사람 달력으로 바뀝니다. ' + (joined && manager ? '추가한 사람은 가족 모두의 폰에 들어갑니다. ' : '') + '지우기는 이 폰에서만 지우고 가족 폰에는 영향이 없습니다.</p></header>' +
       '<ul class="people-list">' + list + '</ul>' +
-      '<div class="edit-add"><label class="visually-hidden" for="newPersonName">새 사람 이름</label>' +
+      (viewer ? '' : '<div class="edit-add"><label class="visually-hidden" for="newPersonName">새 사람 이름</label>' +
         '<input id="newPersonName" type="text" maxlength="10" placeholder="새 사람 이름 (예: 지현)" autocomplete="off">' +
-        '<button type="button" class="btn btn-small" id="addPerson">추가</button></div>' +
-      '<section class="block"><h3 class="block-title">다른 폰과 나누기</h3>' +
-        '<p class="note">스케줄은 이 폰 안에만 저장되고 다른 폰과 자동으로 맞춰지지 않습니다. 가족 폰에서 보려면 파일로 보내고, 받은 폰에서 "파일에서 받기"로 넣어 주세요.</p>' +
-        '<div class="btn-row">' +
-          '<button type="button" class="btn btn-grow" data-person-export>' + ICON.install + esc(NAME) + ' 스케줄 파일로 보내기</button>' +
-          '<label class="btn btn-grow file-btn" for="importPerson">' + ICON.copy + '파일에서 받기<input id="importPerson" type="file" accept="application/json,.json"></label>' +
-        '</div></section>';
+        '<button type="button" class="btn btn-small" id="addPerson">추가</button></div>') +
+      '<section class="block"><h3 class="block-title">가족 링크</h3>' + linkBlock + '</section>';
   }
 
   function openPeople() {
@@ -3042,9 +2816,20 @@
     if (!clean) return toast('이름을 적어 주세요.');
     if (people.list.some(function (p) { return p.name === clean; })) return toast('같은 이름이 이미 있습니다.');
     var id = 'u' + Date.now().toString(36);
+    var group = groupInfo();
+    if (group && isManager() && sync) {
+      // 관리자 폰: 가족 링크 명단에 넣어 모든 가족 폰에 보이게 한다
+      var link = sync.newLink();
+      group.people.push({ name: clean, id: link.id, key: link.key });
+      saveGroup(group);
+      people.list.push({ id: id, name: clean, follow: { id: link.id, key: link.key, at: null, error: '' } });
+      savePeople();
+      switchPerson(id, clean + '을(를) 가족 링크에 추가했습니다. 캡처를 넣으면 가족 모두에게 보입니다.');
+      return ensureTokens().then(syncDirectory).catch(function (err) { toast('가족 명단을 올리지 못했습니다: ' + err.message); });
+    }
     people.list.push({ id: id, name: clean });
     savePeople();
-    switchPerson(id, clean + '을(를) 추가했습니다. 캡처를 넣어 주세요.');
+    switchPerson(id, clean + '을(를) 이 폰에만 추가했습니다. 캡처를 넣어 주세요.');
   }
 
   function renamePerson(id) {
@@ -3063,7 +2848,7 @@
   function deletePerson(id) {
     var person = people.list.filter(function (p) { return p.id === id; })[0];
     if (!person || people.list.length < 2) return;
-    if (!window.confirm(person.name + '의 스케줄과 설정을 이 폰에서 모두 지울까요?')) return;
+    if (!window.confirm(person.name + '을(를) 이 폰에서 지울까요? ' + (person.follow ? '가족 링크의 스케줄은 그대로 남고, 링크를 다시 넣으면 돌아옵니다.' : '넣은 스케줄과 설정이 모두 지워집니다.'))) return;
     try { localStorage.removeItem(keyFor(id)); } catch (e) { /* 지우지 못해도 목록에서는 뺀다 */ }
     people.list = people.list.filter(function (p) { return p.id !== id; });
     savePeople();
@@ -3078,41 +2863,6 @@
     }
     renderPeople();
     toast(person.name + '을(를) 지웠습니다.');
-  }
-
-  function exportPerson() {
-    save();
-    var payload = { app: 'crew-family', version: 1, name: NAME, exportedAt: new Date().toISOString(), data: db };
-    saveFile(NAME + '-스케줄.json', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-  }
-
-  function importPerson(file) {
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      var payload = null;
-      try { payload = JSON.parse(reader.result); } catch (e) { /* 아래에서 알린다 */ }
-      if (!payload || payload.app !== 'crew-family' || !payload.data || !Array.isArray(payload.data.entries)) {
-        return toast('이 앱에서 보낸 스케줄 파일이 아닙니다.');
-      }
-      var name = String(payload.name || '받은 스케줄').trim();
-      var same = people.list.filter(function (p) { return p.name === name; })[0];
-      var id;
-      if (same && window.confirm(name + ' 스케줄이 이미 있습니다. 받은 파일로 바꿀까요? (취소하면 새 사람으로 추가)')) {
-        id = same.id;
-      } else {
-        id = 'u' + Date.now().toString(36);
-        people.list.push({ id: id, name: same ? name + ' (받음)' : name });
-      }
-      try {
-        localStorage.setItem(keyFor(id), JSON.stringify(payload.data));
-      } catch (e) {
-        return toast('이 폰에 저장하지 못했습니다.');
-      }
-      savePeople();
-      switchPerson(id, name + ' 스케줄을 받았습니다.');
-    };
-    reader.readAsText(file);
   }
 
   /* ---------------- 화면 전환 ---------------- */
@@ -3194,6 +2944,10 @@
       ? (NAME === TEST_NAME ? '<strong>테스트</strong> 사람이라 예시 스케줄이 보입니다.' : '지금 보이는 건 <strong>예시 스케줄</strong>입니다.')
       : '<strong>' + esc(NAME) + '</strong> 스케줄이 아직 없습니다.';
     $('sampleGo').textContent = NAME + ' 캡처 넣기';
+    var editable = canEdit();
+    $('sampleGo').hidden = !editable;
+    document.querySelectorAll('.tab[data-go="import"]').forEach(function (tab) { tab.hidden = !editable; });
+    if ($('clearData')) $('clearData').hidden = !editable;
     renderInstall();
     renderTicket();
     renderReminders();
@@ -3233,114 +2987,36 @@
     var data = target.dataset;
     if (data.go) return go(data.go);
     if (target.hasAttribute('data-close')) return target.closest('dialog').close();
-    if (target.hasAttribute('data-open-export') || target.id === 'openExport') return openExport();
+    if (target.id === 'openExport') return openExport();
     if (data.date) return openDay(data.date);
     if (target.id === 'monthPrev') return shiftMonth(-1);
     if (target.id === 'monthNext') return shiftMonth(1);
     if (target.id === 'applyPreview') return applyPending();
     if (target.id === 'pasteGo') return readPaste();
     if (target.id === 'exportMonth') return exportMonth();
-    if (target.hasAttribute('data-open-share')) {
-      state.shareResult = null;
-      $('shareBody').innerHTML = shareMakerHtml();
-      return $('shareSheet').showModal();
-    }
     if (target.hasAttribute('data-open-receive')) {
       var askPaste = function () {
-        var typed = window.prompt('가족에게 받은 스케줄 링크를 붙여 넣어 주세요.');
+        var typed = window.prompt('가족에게 받은 가족 링크를 붙여 넣어 주세요.');
         if (typed) openLinkText(typed);
       };
       if (navigator.clipboard && navigator.clipboard.readText) {
         navigator.clipboard.readText().then(function (text) {
-          if (text && /#(g|f|s)=/.test(text)) return openLinkText(text.trim());
+          if (text && /#g=/.test(text)) return openLinkText(text.trim());
           askPaste();
         }, askPaste);
         return;
       }
       return askPaste();
     }
-    if (target.id === 'makeShare') {
-      var shareKey = share.randomKey();
-      var chosen = [].slice.call(document.querySelectorAll('[data-share-month]:checked')).map(function (box) { return box.value; });
-      if (!chosen.length) return toast('보낼 달을 하나 이상 골라 주세요.');
-      var inMonths = function (key) { return chosen.indexOf(key.slice(0, 7)) >= 0; };
-      var sharedOverrides = {};
-      Object.keys(db.overrides).forEach(function (key) { if (inMonths(key)) sharedOverrides[key] = db.overrides[key]; });
-      target.disabled = true;
-      target.textContent = '잠그는 중';
-      share.pack({
-        app: 'crew-family-share', v: 1, name: NAME,
-        entries: db.entries.filter(function (entry) { return inMonths(entry.date); }),
-        words: db.words, routeFix: db.routeFix, overrides: sharedOverrides
-      }, shareKey).then(function (token) {
-        state.shareResult = { link: share.linkFor(shareBaseUrl(), token, shareKey) };
-        $('shareBody').innerHTML = shareMakerHtml(state.shareResult);
-      }, function (err) {
-        target.disabled = false;
-        target.textContent = '링크 만들기';
-        toast(err.message);
-      });
-      return;
-    }
-    if (target.hasAttribute('data-share-send') && state.shareResult) {
-      return shareText(NAME + ' 스케줄 링크입니다. 누르면 달력이 열려요.\n' + state.shareResult.link);
-    }
-    if (data.shareCopy && state.shareResult) {
-      return copyText(state.shareResult.link, '링크를 복사했습니다.');
-    }
-    if (target.id === 'openShare' && incomingShare) {
-      var receivePin = ($('receivePin').value || '').trim();
-      target.disabled = true;
-      target.textContent = '여는 중';
-      share.unpack(incomingShare.token, receivePin).then(function (payload) {
-        incomingShare.payload = cleanShared(payload);
-        $('shareBody').innerHTML = receiveHtml(incomingShare.payload);
-      }).catch(function (err) {
-        $('shareBody').innerHTML = receiveHtml(null, err.message);
-      });
-      return;
-    }
-    if (data.shareApply && incomingShare && incomingShare.payload) return applyShare(data.shareApply);
-    if (target.hasAttribute('data-share-dismiss')) {
-      clearShareHash();
-      incomingShare = null;
-      return $('shareSheet').close();
-    }
-    if (target.hasAttribute('data-family-make')) {
-      if (!db.entries.length) return toast('올릴 넣은 스케줄이 없습니다. 캡처를 먼저 넣어 주세요.');
-      delete db.familyOff;
-      db.familyLink = sync.newLink();
-      saveQuiet();
-      renderFamilyBox();
-      return uploadFamily(true);
-    }
     if (data.familySend) {
-      var sendUrl = familyUrl(data.familySend);
-      if (!sendUrl) return toast('보낼 링크가 없습니다.');
-      if (data.familySend === 'group') {
-        return shareText('가족 스케줄 링크입니다. 오늘 민주는 앱의 설정, 스케줄 보는 사람, 받은 링크 넣기를 누르면 들어가요.\n' + sendUrl);
-      }
-      return shareText(data.familySend === 'upload'
-        ? NAME + ' 스케줄 올리기 링크입니다. 앱의 설정, 스케줄 보는 사람, 받은 링크 넣기에 넣으면 이 폰에서 스케줄을 올릴 수 있어요.\n' + sendUrl
-        : NAME + ' 스케줄 보기 링크입니다. 앱의 설정, 스케줄 보는 사람, 받은 링크 넣기에 넣으면 늘 최신으로 보여요.\n' + sendUrl);
+      if (!familyUrl()) return toast('보낼 링크가 없습니다.');
+      return shareText('가족 스케줄 링크입니다. 오늘 민주는 앱을 열고 설정, 가족 링크, 받은 링크 넣기를 누르면 들어가요.\n' + familyUrl());
     }
     if (data.familyCopy) {
-      var copyUrl = familyUrl(data.familyCopy);
-      if (!copyUrl) return toast('복사할 링크가 없습니다.');
-      return copyText(copyUrl, data.familyCopy === 'upload' ? '올리기 링크를 복사했습니다.' : data.familyCopy === 'group' ? '가족 링크를 복사했습니다.' : '보기 링크를 복사했습니다.');
+      if (!familyUrl()) return toast('복사할 링크가 없습니다.');
+      return copyText(familyUrl(), '가족 링크를 복사했습니다.');
     }
     if (target.hasAttribute('data-family-push')) return uploadFamily(true);
-    if (target.hasAttribute('data-family-stop') && db.familyLink) {
-      if (!window.confirm('가족 링크를 끌까요? 저장소의 스케줄을 지우고, 이 링크를 받은 가족은 더 이상 새 스케줄을 받지 못합니다.')) return;
-      var stopping = db.familyLink;
-      return familyApi().remove(stopping.id, stopping.token).then(function () {
-        delete db.familyLink;
-        db.familyOff = true;
-        saveQuiet();
-        renderFamilyBox();
-        toast('가족 링크를 껐습니다.');
-      }, function (err) { toast(err.message); });
-    }
     if (target.hasAttribute('data-manager-on')) {
       var managerGroup = groupInfo();
       if (!managerGroup) return toast('가족 링크를 먼저 넣어 주세요.');
@@ -3354,11 +3030,11 @@
         })).then(function (pairs) {
           var tokens = {};
           pairs.forEach(function (pair) { tokens[pair[0]] = pair[1]; });
-          localStorage.setItem(MANAGER_KEY, JSON.stringify({ tokens: tokens, at: new Date().toISOString() }));
+          localStorage.setItem(MANAGER_KEY, JSON.stringify({ tokens: tokens, pin: managerPin, at: new Date().toISOString() }));
           render();
           if (state.view === 'settings') renderFamilyBox();
           toast('관리자를 켰습니다. 이 폰에서 캡처를 넣고 일정을 고칠 수 있습니다.');
-          pullFamilies(false);
+          ensureTokens().then(function () { return pullFamilies(false); });
         });
       });
     }
@@ -3372,21 +3048,6 @@
       return toast('관리자를 껐습니다.');
     }
     if (target.hasAttribute('data-family-pull')) return pullFamilies(true);
-    if (target.hasAttribute('data-family-unfollow')) {
-      var follower = currentPerson();
-      if (!follower || !follower.follow) return;
-      if (!window.confirm(NAME + ' 스케줄 받기를 그만둘까요? 지금까지 받은 스케줄은 이 폰에 남습니다.')) return;
-      delete follower.follow;
-      savePeople();
-      renderFamilyBox();
-      return toast('받기를 그만뒀습니다.');
-    }
-    if (data.familyAccept && incomingFamily && incomingFamily.payload) return acceptFamily(data.familyAccept);
-    if (target.hasAttribute('data-family-dismiss')) {
-      incomingFamily = null;
-      if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + location.search);
-      return $('shareSheet').close();
-    }
     if (data.togetherShift) {
       state.month += +data.togetherShift;
       if (state.month < 1) { state.month = 12; state.year -= 1; }
@@ -3460,7 +3121,6 @@
     if (data.personSwitch) return data.personSwitch === people.current ? $('peopleSheet').close() : switchPerson(data.personSwitch);
     if (data.personRename) return renamePerson(data.personRename);
     if (data.personDelete) return deletePerson(data.personDelete);
-    if (target.hasAttribute('data-person-export')) return exportPerson();
     if (target.id === 'addPerson') return addPerson($('newPersonName').value);
     if (data.placeMove) {
       var move = data.placeMove.split('|');
@@ -3554,8 +3214,7 @@
       render();
       return toast('예매 표시를 지웠습니다.');
     }
-    if (target.id === 'shareCalendar' || target.hasAttribute('data-share-calendar')) return exportCalendarImage(modelFor(state.year, state.month));
-    if (data.copy) return copyText(data.copy, '예매 정보를 복사했습니다. 버스타고에서 그대로 고르면 됩니다.');
+    if (target.id === 'shareCalendar') return exportCalendarImage(modelFor(state.year, state.month));
 
     if (data.export) {
       var model = modelFor(state.year, state.month);
@@ -3636,6 +3295,7 @@
     var input = event.target;
     var data = input.dataset;
     if (input.id === 'photo') return readPhoto(input.files && input.files[0]);
+    if (data.blockFix && !canEdit()) return render();
     if (data.blockFix) {
       var raw = input.value.trim();
       if (!raw) {
@@ -3650,11 +3310,6 @@
       $('hoursBody').innerHTML = hoursSheetHtml(modelFor(state.year, state.month));
       return toast(data.blockFix + (raw ? ' 비행시간을 고쳤습니다.' : ' 비행시간을 원래 값으로 돌렸습니다.'));
     }
-    if (input.id === 'importPerson') {
-      importPerson(input.files && input.files[0]);
-      input.value = '';
-      return;
-    }
     if (input.closest('#daySheet') && (data.setting || data.placeWalk || data.travelOut || data.travelIn)) {
       onSettingInput(input);
       toast('바꾼 시간으로 다시 계산했습니다.');
@@ -3666,14 +3321,6 @@
       save();
       return render();
     }
-    if (data.booked && !canEdit()) return render();
-    if (data.booked) {
-      if (input.checked) db.booked[data.booked] = true;
-      else delete db.booked[data.booked];
-      save();
-      toast(input.checked ? '예매했다고 적어 두었습니다.' : '예매 체크를 풀었습니다.');
-      return render();
-    }
     if (data.editIndex != null && data.editDate) {
       var list = codesOn(data.editDate);
       var replaced = splitCodes(input.value);
@@ -3682,7 +3329,6 @@
     }
     if (data.word) return setWord(data.word, { short: input.value.trim() });
     if (data.cat) return setWord(data.cat, { category: input.value || 'unknown' });
-    if (data.route) return setRoute(data.route, input.value);
     if (data.routeFrom || data.routeTo) {
       var routeCode = data.routeFrom || data.routeTo;
       var box = input.closest('.route-edit-body');
@@ -3826,17 +3472,8 @@
   go('calendar');
   renderAds();
 
-  // 공유 링크로 열었으면 스케줄을 풀어 넣을지 묻는다
-  if (sync && sync.fromGroupHash(location.hash)) {
-    joinGroup(sync.fromGroupHash(location.hash));
-  } else if (sync && sync.fromHash(location.hash)) {
-    openFamilyReceive(sync.fromHash(location.hash));
-  } else if (share && share.tokenFrom(location.hash)) {
-    openReceive(share.tokenFrom(location.hash), share.keyFrom(location.hash));
-  }
-
-  // 넣어 둔 스케줄이 있는데 아직 가족 링크가 없으면 만들어 올린다
-  scheduleFamilyUpload();
+  // 가족 링크로 열었으면 넣는다
+  if (sync && sync.fromGroupHash(location.hash)) joinGroup(sync.fromGroupHash(location.hash));
 
   // 가족 링크로 받는 사람은 열 때, 30분마다, 다시 볼 때 최신으로
   pullFamilies(false);
