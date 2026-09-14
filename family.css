@@ -1529,3 +1529,7 @@ details.fold[open] > summary { margin-bottom: 12px; }
 .tg-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: -8px; vertical-align: -1px; }
 .tg-key.is-both { background: var(--off-tint); box-shadow: inset 0 0 0 1.5px var(--off); }
 .tg-key.is-same { background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* 가족 링크 QR: 테마와 상관없이 흰 바탕이어야 카메라가 읽는다 */
+.family-qr { display: grid; place-items: center; padding: 16px; margin: 4px 0 8px; background: #FFFFFF; border-radius: 16px; box-shadow: inset 0 0 0 1px var(--line); }
+.family-qr img { width: min(100%, 300px); height: auto; image-rendering: pixelated; }

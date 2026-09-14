@@ -1412,7 +1412,8 @@
     return '<div class="link-row"><p class="link-label">' + esc(label) + '</p>' +
       '<p class="share-link">' + esc(url) + '</p>' +
       '<div class="btn-row"><button type="button" class="btn btn-grow' + (kind === 'view' ? ' btn-primary' : '') + '" data-family-send="' + kind + '">보내기</button>' +
-        '<button type="button" class="btn btn-grow" data-family-copy="' + kind + '">복사</button></div>' +
+        '<button type="button" class="btn btn-grow" data-family-copy="' + kind + '">복사</button>' +
+        (kind === 'group' ? '<button type="button" class="btn btn-grow" data-family-qr>QR</button>' : '') + '</div>' +
       (note ? '<p class="note">' + note + '</p>' : '') + '</div>';
   }
 
@@ -1420,6 +1421,103 @@
   function familyUrl() {
     var g = groupInfo();
     return g ? sync.groupLinkFor(shareBaseUrl(), g) : null;
+  }
+
+  /* ---------------- 가족 링크 QR ---------------- */
+
+  var vendorLoads = {};
+
+  /** QR 라이브러리는 누를 때만 받는다 */
+  function loadVendor(src) {
+    if (!vendorLoads[src]) {
+      vendorLoads[src] = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = function () { delete vendorLoads[src]; reject(new Error('QR 도구를 받지 못했습니다. 인터넷 연결을 확인해 주세요.')); };
+        document.head.appendChild(script);
+      });
+    }
+    return vendorLoads[src];
+  }
+
+  function familyQr() {
+    return loadVendor('vendor/qr/qrcode.js').then(function () {
+      var qr = window.qrcode(0, 'M');
+      qr.addData(familyUrl());
+      qr.make();
+      return qr;
+    });
+  }
+
+  /** 흰 바탕 PNG. 카톡으로 보내고 받은 폰에서 캡처를 골라도 읽힐 만큼 크게. */
+  function qrCanvas(qr) {
+    var cell = 12, margin = 4, count = qr.getModuleCount();
+    var canvas = document.createElement('canvas');
+    canvas.width = canvas.height = (count + margin * 2) * cell;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000000';
+    for (var r = 0; r < count; r++) {
+      for (var c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect((c + margin) * cell, (r + margin) * cell, cell, cell);
+      }
+    }
+    return canvas;
+  }
+
+  function showFamilyQr() {
+    if (!familyUrl()) return toast('보낼 가족 링크가 없습니다.');
+    familyQr().then(function (qr) {
+      $('shareBody').innerHTML = '<header class="sheet-head"><p class="eyebrow">가족 링크</p>' +
+        '<h2 id="shareTitle" class="display">QR로 넣기</h2>' +
+        '<p class="lede">가족 폰의 이 앱에서 설정, 가족 링크, <b>QR 사진으로 넣기</b>를 누르고 이 QR을 찍은 사진이나 받은 QR 이미지를 고르면 들어갑니다.</p></header>' +
+        '<div class="family-qr"><img id="familyQrImage" alt="가족 링크 QR" src="' + qrCanvas(qr).toDataURL('image/png') + '"></div>' +
+        '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-qr-save>QR 이미지 보내기</button></div>' +
+        '<p class="note">휴대폰 기본 카메라로 찍으면 앱이 아니라 브라우저가 열립니다. 꼭 앱 안의 QR 사진으로 넣기를 써 주세요. QR을 가진 사람은 가족 스케줄을 볼 수 있으니 가족에게만 보내 주세요.</p>';
+      if (!$('shareSheet').open) $('shareSheet').showModal();
+    }, function (err) { toast(err.message); });
+  }
+
+  function saveFamilyQr() {
+    familyQr().then(function (qr) {
+      qrCanvas(qr).toBlob(function (blob) {
+        if (!blob) return toast('QR 이미지를 만들지 못했습니다.');
+        saveFile('가족링크-QR.png', blob);
+      }, 'image/png');
+    }, function (err) { toast(err.message); });
+  }
+
+  /** 사진이나 캡처에서 QR을 찾아 가족 링크로 넣는다. 큰 사진은 줄여서, 못 찾으면 한 번 더 작게. */
+  function readQrPhoto(file) {
+    if (!file) return;
+    toast('QR을 읽는 중입니다.');
+    loadVendor('vendor/qr/jsQR.js').then(function () {
+      return new Promise(function (resolve, reject) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('사진을 열지 못했습니다.')); };
+        img.src = url;
+      });
+    }).then(function (img) {
+      var decode = (window.jsQR && (window.jsQR.default || window.jsQR));
+      var found = null;
+      [1600, 900, 500].some(function (limit) {
+        var scale = Math.min(1, limit / Math.max(img.naturalWidth, img.naturalHeight));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        var pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        found = decode(pixels.data, canvas.width, canvas.height, { inversionAttempts: 'attemptBoth' });
+        return !!found;
+      });
+      if (!found) return toast('QR을 찾지 못했습니다. QR이 사진에 크고 선명하게 나오게 다시 찍어 주세요.');
+      openLinkText(found.data);
+    }).catch(function (err) { toast(err.message); });
   }
 
   /** 설정의 가족 링크 칸: 링크 넣기 전, 보는 폰, 관리자 폰 */
@@ -1437,8 +1535,9 @@
     var group = groupInfo();
     if ($('familyHowto')) $('familyHowto').hidden = !!group;
     if (!group) {
-      box.innerHTML = '<p class="note">받은 가족 링크를 복사한 뒤 눌러 주세요.</p>' +
-        '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-open-receive>받은 링크 넣기</button></div>';
+      box.innerHTML = '<p class="note">받은 가족 링크를 복사한 뒤 누르거나, 가족 링크 QR을 찍은 사진이나 캡처를 골라 주세요.</p>' +
+        '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-open-receive>받은 링크 넣기</button>' +
+        '<label class="btn btn-grow file-btn" for="qrPhoto">QR 사진으로 넣기<input id="qrPhoto" type="file" accept="image/*"></label></div>';
       return;
     }
     var me = currentPerson();
@@ -3004,6 +3103,8 @@
       }
       return askPaste();
     }
+    if (target.hasAttribute('data-family-qr')) return showFamilyQr();
+    if (target.hasAttribute('data-family-qr-save')) return saveFamilyQr();
     if (data.familySend) {
       if (!familyUrl()) return toast('보낼 링크가 없습니다.');
       return shareText('가족 스케줄 링크입니다. 오늘 민주는 앱을 열고 설정, 가족 링크, 받은 링크 넣기를 누르면 들어가요.\n' + familyUrl());
@@ -3294,6 +3395,11 @@
     var input = event.target;
     var data = input.dataset;
     if (input.id === 'photo') return readPhoto(input.files && input.files[0]);
+    if (input.id === 'qrPhoto') {
+      readQrPhoto(input.files && input.files[0]);
+      input.value = '';
+      return;
+    }
     if (data.blockFix && !canEdit()) return render();
     if (data.blockFix) {
       var raw = input.value.trim();
