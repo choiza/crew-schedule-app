@@ -135,6 +135,17 @@ test('기본 뜻에 없는 코드도 근무 코드 사전에서 뜻을 찾는다
   assert.deepStrictEqual(plan.wordFor('GDO', 'unknown', { GDO: { short: '보장', category: 'off' } }).short, '보장');
 });
 
+test('코드 관리 표에 코드 뜻이 어디서 왔는지 보인다', () => {
+  assert.strictEqual(plan.wordSource('ATDO', 'off', {}), 'default');
+  assert.strictEqual(plan.wordSource('GDO', 'unknown', {}), 'dict');
+  assert.strictEqual(plan.wordSource('ATDO', 'off', { ATDO: { short: '쉼' } }), 'custom');
+  assert.strictEqual(plan.wordSource('ZZZ', 'unknown', { ZZZ: { short: '연수', category: 'training', added: true } }), 'added');
+  assert.strictEqual(plan.wordSource('QQQ', 'standby', {}), 'category');
+  assert.strictEqual(plan.wordSource('QQQ', 'unknown', {}), 'unknown');
+  const all = plan.allKnownCodes();
+  assert.ok(all.indexOf('ATDO') >= 0 && all.indexOf('GDO') >= 0);
+});
+
 test('사전 코드로 이루어진 날도 휴무와 근무를 바르게 센다', () => {
   const entries = sampleEntries().filter((e) => !(e.date === '2026-09-07' || e.date === '2026-09-09'));
   entries.push({ date: '2026-09-07', code: 'GDO', type: 'duty', category: 'off' });

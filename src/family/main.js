@@ -502,7 +502,7 @@
   }
 
   function renderReminders() {
-    var list = dueBookings();
+    var list = canEdit() ? dueBookings() : [];
     var box = $('reminders');
     if (!list.length) {
       box.hidden = true;
@@ -824,7 +824,10 @@
     var broken = !!(mine && !mine.fit);
     var chip = raw ? (broken ? '예매한 차가 안 맞아요' : '예매 완료') : '추천';
     var warn = '';
-    if (broken) {
+    var admin = canEdit();
+    if (!admin) {
+      warn = lateText || '';
+    } else if (broken) {
       warn = direction === 'out'
         ? '예매한 차는 공항 도착 목표보다 ' + bus.span(-mine.spare) + ' 늦습니다. 버스타고에서 바꾼 뒤 자세히에서 새 차를 골라 주세요.'
         : '예매한 차가 착륙 후 나오는 시각(' + bus.clock(mine.ready) + ')보다 먼저 떠납니다. 버스타고에서 바꾼 뒤 자세히에서 새 차를 골라 주세요.';
@@ -842,13 +845,14 @@
       '<ul class="bus-steps">' + steps.map(function (step) {
         return '<li><span>' + esc(step[0]) + '</span><b>' + esc(step[1]) + '</b></li>';
       }).join('') + '</ul>' +
-      '<div class="btn-row">' + prefilledBooking(ev, shown, direction, !raw) +
-        (!canEdit() ? '' : raw
+      (admin
+        ? '<div class="btn-row">' + prefilledBooking(ev, shown, direction, !raw) + (raw
           ? '<button type="button" class="btn btn-grow" data-unbook="' + esc(key) + '">예매 취소</button>'
           : '<button type="button" class="btn btn-grow" data-book="' + esc(bookValue(ev, direction, shown)) + '">예매했어요</button>') +
-      '</div>' +
+          '</div>'
+        : '') +
       (direction === 'out' ? '<div class="btn-row">' + alarmButton(shown, ev) + '</div>' : '') +
-      (raw ? '' : '<p class="note">' + esc(dateLabel(openDay)) + '부터 예매 알림을 드려요.</p>') +
+      (raw || !admin ? '' : '<p class="note">' + esc(dateLabel(openDay)) + '부터 예매 알림을 드려요.</p>') +
       '<details class="bus-more" data-tune="' + direction + '"' + (state.tuneOpen[direction] ? ' open' : '') + '>' +
         '<summary>자세히: 다른 시간 차, 시간 고치기</summary>' + moreHtml + '</details>' +
     '</div>';
@@ -869,7 +873,7 @@
         '<span class="t">' + esc(bus.hhmm(c.board)) + '</span>' +
         '<span class="what"><b>' + esc(c.route) + '</b> ' + esc(what) + placeTag(c) + '</span>' +
         '<span class="tag">' + (isMine ? '<b>예매 완료</b> ' : (c.pick ? '<b>추천</b> ' : '')) + esc(tag + ', ' + bus.span(c.travel)) + ' ' + sourceBadge(c.source) + '</span>' +
-        (isMine ? '' : '<button type="button" class="choice-book" data-book="' + esc(bookValue(ev, direction, c)) + '">이 차로 예매했어요</button>') +
+        (isMine || !canEdit() ? '' : '<button type="button" class="choice-book" data-book="' + esc(bookValue(ev, direction, c)) + '">이 차로 예매했어요</button>') +
         '</li>';
     }).join('') + '</ul>';
   }
@@ -1067,6 +1071,36 @@
   /** 기본 뜻이 없는 코드. 앱이 모르는 코드라 사람이 뜻을 정해야 한다. */
   function isNewCode(code, word) {
     return !plan.knownCode(code) && (word.category === 'unknown' || !!(db.words[code] && db.words[code].added));
+  }
+
+  var SOURCE_TEXT = { added: '직접 추가', custom: '직접 고침', 'default': '앱 기본 뜻', dict: '근무 코드 사전', category: '스케줄 분류로 추정', unknown: '뜻 모름' };
+
+  function categoryLabel(value) {
+    var hit = plan.CATEGORIES.filter(function (c) { return c.value === value; })[0];
+    return hit ? hit.label : '모름';
+  }
+
+  /** 그 코드가 스케줄에 나온 날 수 */
+  function codeDays(code) {
+    var days = {};
+    rawEntries().forEach(function (entry) { if (entry.code === code) days[entry.date] = true; });
+    return Object.keys(days).length;
+  }
+
+  /** 코드 관리 표 한 줄: 코드, 달력에 보일 말과 뜻, 종류, 뜻 출처, 확정 여부 */
+  function codeLine(code, inSchedule) {
+    var word = plan.wordFor(code, categoryOf(code), db.words);
+    var source = plan.wordSource(code, categoryOf(code), db.words);
+    var days = inSchedule ? codeDays(code) : 0;
+    var kind = categoryLabel(word.category);
+    var state = !inSchedule || !canEdit() ? '' : db.confirmed[code]
+      ? '<span class="code-pill is-ok">확정</span>'
+      : '<span class="code-pill is-wait">확인 필요</span>';
+    return '<div class="code-line">' +
+      '<span class="code-chip">' + esc(code) + '</span>' +
+      '<span class="code-what"><b>' + esc(word.short) + (kind === word.short ? '' : ', ' + esc(kind)) + '</b><small>' + esc(word.long) + '</small></span>' +
+      '<span class="code-state">' + state + '<span>' + esc(SOURCE_TEXT[source]) + (days ? ', ' + days + '일' : '') + '</span></span>' +
+      '</div>';
   }
 
   /** 스케줄에 나온 근무 코드와 손으로 추가한 코드 */
@@ -1496,6 +1530,14 @@
   }
 
   function renderFamilyBox() {
+    // 가족 링크를 넣은 폰: 보는 사람은 관리자 켜기만, 관리자는 링크 보내기와 사람 관리까지
+    var joined = !!groupInfo();
+    var manager = isManager();
+    ['peopleRow', 'shareButtons', 'oneShareNote'].forEach(function (id) {
+      if ($(id)) $(id).hidden = joined && !manager;
+    });
+    if ($('oneShareBtn')) $('oneShareBtn').hidden = joined;
+    if ($('oneShareNote') && joined) $('oneShareNote').hidden = true;
     var box = $('familyLinkBox');
     if (!box) return;
     var me = currentPerson();
@@ -1515,7 +1557,7 @@
       box.innerHTML = html +
         '<p class="note">가족 링크로 ' + esc(names) + ' 스케줄을 봅니다. 앱을 열 때와 30분마다 최신으로 바뀝니다.' +
           (mine ? ' ' + esc(NAME) + ' 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) : '') + '</p>' +
-        linkRow('가족 링크 (모두 같은 링크)', familyUrl('group'), 'group', '가족에게 이 링크 하나만 보내면 됩니다. 링크를 가진 사람은 모두 볼 수 있습니다.') +
+        (isManager() ? linkRow('가족 링크 (모두 같은 링크)', familyUrl('group'), 'group', '가족에게 이 링크 하나만 보내면 됩니다. 링크를 가진 사람은 모두 볼 수 있습니다.') : '') +
         (mine && me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
         (isManager()
           ? '<p class="note"><b>이 폰은 관리자입니다.</b> 캡처를 넣거나 일정을 고치면 가족 모두에게 올라가고, 마지막에 올린 스케줄로 맞춰집니다.</p>' +
@@ -1831,7 +1873,7 @@
           '<p class="note">공항을 바꾸면 같은 편명이 들어간 모든 날짜에 바로 반영됩니다. 밤을 넘기는 귀국편은 출발일과 도착일에 같은 편명을 적어 주세요.</p>'
         : '<details class="edit-advanced"><summary>일정 하나씩 고치기</summary>' +
           (items ? '<ul class="edit-list">' + items + '</ul>' : '<p class="note">적힌 코드가 없습니다.</p>') +
-          '<p class="note">휴무인지 근무인지가 틀리면 <button type="button" class="link-btn" data-go-codes>코드 뜻 고치기</button>에서 바꿉니다.</p></details>') +
+          '<p class="note">휴무인지 근무인지가 틀리면 <button type="button" class="link-btn" data-go-codes>코드 관리</button>에서 바꿉니다.</p></details>') +
       '</section>';
   }
 
@@ -2055,7 +2097,7 @@
 
   /** 예매 알림: 비행 며칠 전 오전 9시 */
   function bookingReminder(ev, rec, direction) {
-    if (rec.board == null || db.booked[bookingKey(ev, direction)]) return [];
+    if (rec.board == null || db.booked[bookingKey(ev, direction)] || !canEdit()) return [];
     var day = bus.bookingDay(ev.date, db.settings.bookDaysBefore);
     var what = direction === 'out'
       ? rec.stopName + ' → ' + airportShort(departAirport(ev)) + ' ' + bus.hhmm(rec.board)
@@ -2168,7 +2210,7 @@
         '<button type="button" class="btn btn-grow" data-export="text">' + ICON.copy + '글로 복사</button>' +
         '<button type="button" class="btn btn-grow" data-export="csv">' + ICON.sheet + '엑셀(CSV)</button>' +
       '</div>' +
-      '<p class="note">실제와 다른 날이 있으면 <button type="button" class="link-btn" data-go-codes>코드 뜻 고치기</button>에서 그 코드를 휴무나 근무로 바꿔 주세요.</p>';
+      '<p class="note">실제와 다른 날이 있으면 <button type="button" class="link-btn" data-go-codes>코드 관리</button>에서 그 코드를 휴무나 근무로 바꿔 주세요.</p>';
   }
 
   function openExport() {
@@ -2712,8 +2754,19 @@
     }
     if ($('installFold')) $('installFold').hidden = isStandalone();
     var done = codes.filter(function (code) { return db.confirmed[code]; });
+    var editCodes = canEdit();
+    if ($('codeAddRow')) $('codeAddRow').hidden = !editCodes;
+    if ($('resetWordsRow')) $('resetWordsRow').hidden = !editCodes;
+    var known = plan.allKnownCodes().filter(function (code) { return codes.indexOf(code) < 0; });
+    var usedInSchedule = function (code) { return codeDays(code) > 0; };
     $('codeList').innerHTML =
-      (waiting.length
+      '<p class="code-sub">지금 쓰는 코드 ' + codes.length + '개</p>' +
+      (codes.length
+        ? '<div class="code-table">' + codes.map(function (code) { return codeLine(code, usedInSchedule(code) || !!db.words[code]); }).join('') + '</div>'
+        : '<p class="note">스케줄을 넣으면 여기에 코드가 나옵니다.</p>') +
+      '<details class="codes-done"><summary>앱이 뜻을 아는 코드 ' + known.length + '개 더 보기</summary><div class="code-table">' +
+        known.map(function (code) { return codeLine(code, false); }).join('') + '</div></details>' +
+      (!editCodes ? '' : '<p class="code-sub">고치기</p>' + (waiting.length
         ? '<p class="code-count">확인할 코드 ' + waiting.length + '개</p>' +
           waiting.map(function (code) { return codeRow(code, 'set'); }).join('') +
           (waiting.length > 1 ? '<div class="btn-row"><button type="button" id="confirmAllWords" class="btn btn-small">' + waiting.length + '개 모두 맞음</button></div>' : '')
@@ -2721,7 +2774,7 @@
       (done.length
         ? '<details class="codes-done"><summary>확정한 코드 ' + done.length + '개 다시 고치기</summary><div class="code-list">' +
           done.map(function (code) { return codeRow(code, 'done'); }).join('') + '</div></details>'
-        : '');
+        : ''));
 
     $('timetableSummary').textContent = '내 출발지 버스 시간표 보기';
     var tables = [];
@@ -3486,6 +3539,7 @@
       renderInstall();
       return toast('설치 안내는 설정 화면에서 다시 볼 수 있어요.');
     }
+    if ((data.book || data.unbook) && !canEdit()) return toast('버스 예매는 관리자 폰에서만 합니다.');
     if (data.book) {
       var b = data.book.split('~');
       db.booked[b[0]] = { route: b[1], stop: b[2], board: +b[3], placeId: b[4], at: todayIso() };
@@ -3612,6 +3666,7 @@
       save();
       return render();
     }
+    if (data.booked && !canEdit()) return render();
     if (data.booked) {
       if (input.checked) db.booked[data.booked] = true;
       else delete db.booked[data.booked];

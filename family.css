@@ -666,6 +666,25 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
 .codes-done { margin-top: 12px; }
 .codes-done summary { font-size: 13px; color: var(--ink-2); cursor: pointer; }
 .code-add { margin-top: 12px; }
+.code-sub { margin: 14px 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.code-sub:first-child { margin-top: 0; }
+.code-table { display: grid; }
+.code-line {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+.code-line:first-child { border-top: 0; }
+.code-line .code-chip { justify-self: start; }
+.code-what b { display: block; font-weight: 600; }
+.code-what small { display: block; font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.code-state { display: grid; justify-items: end; gap: 4px; font-size: 12px; color: var(--ink-2); text-align: right; }
+.code-pill { font-weight: 600; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
+.code-pill.is-wait { color: var(--warn); background: var(--warn-tint); box-shadow: inset 0 0 0 1px var(--warn); }
+.code-pill.is-ok { color: var(--off); background: var(--off-tint); box-shadow: none; }
 
 .reset {
   border: 0; background: none; padding: 4px 0;

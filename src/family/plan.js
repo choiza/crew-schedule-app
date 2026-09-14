@@ -126,6 +126,21 @@
     return { short: key, long: key + ' (뜻을 모르는 코드)', category: 'unknown', custom: false };
   }
 
+  /**
+   * 코드 뜻이 어디서 왔는지. 코드 관리 표에 보인다.
+   * added: 직접 추가, custom: 직접 고침, default: 앱 기본 뜻, dict: 근무 코드 사전, category: 스케줄 분류로 추정, unknown: 뜻 모름
+   */
+  function wordSource(code, category, words) {
+    var key = String(code || '').toUpperCase();
+    var own = words && words[key];
+    if (own && own.added && !DEFAULT_WORDS[key] && !dictWord(key)) return 'added';
+    if (own) return 'custom';
+    if (DEFAULT_WORDS[key]) return 'default';
+    if (dictWord(key)) return 'dict';
+    if (CATEGORY_WORDS[category]) return 'category';
+    return 'unknown';
+  }
+
   /** 이어진 날에 걸쳐 적힌 같은 편명을 한 번의 비행으로 묶는다. */
   function flightRuns(entries) {
     var byCode = {};
@@ -464,6 +479,13 @@
   return {
     WEEKDAYS: WEEKDAYS,
     CATEGORIES: CATEGORIES,
+    wordSource: wordSource,
+    /** 앱이 뜻을 아는 코드 전체: 기본 뜻과 근무 코드 사전 */
+    allKnownCodes: function () {
+      var list = Object.keys(DEFAULT_WORDS);
+      Object.keys((codes && codes.DUTY_CODES) || {}).forEach(function (k) { if (list.indexOf(k) < 0) list.push(k); });
+      return list.sort();
+    },
     knownCode: function (code) { var key = String(code || '').toUpperCase(); return !!(DEFAULT_WORDS[key] || dictWord(key)); },
     together: together,
     keepBookings: keepBookings,

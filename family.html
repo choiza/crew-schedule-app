@@ -121,16 +121,16 @@
     </section>
 
     <details class="panel fold">
-      <summary class="panel-title">스케줄 보는 사람</summary>
-      <div class="person-row">
+      <summary class="panel-title">가족 링크, 관리자</summary>
+      <div class="person-row" id="peopleRow">
         <p class="person-now"><span id="personNow">민주</span><small>설정은 사람마다 따로 저장됩니다</small></p>
         <button type="button" class="btn btn-small" data-open-people>사람 바꾸기, 추가</button>
       </div>
-      <div class="btn-row">
-        <button type="button" class="btn btn-grow" data-open-share>한 번 보내는 링크</button>
+      <div class="btn-row" id="shareButtons">
+        <button type="button" class="btn btn-grow" data-open-share id="oneShareBtn">한 번 보내는 링크</button>
         <button type="button" class="btn btn-grow" data-open-receive>받은 링크 넣기</button>
       </div>
-      <p class="note">한 번 보내는 링크는 서버에 올리지 않고 스케줄을 링크 안에 담습니다. 스케줄이 바뀌면 새 링크를 보내야 합니다.</p>
+      <p class="note" id="oneShareNote">한 번 보내는 링크는 서버에 올리지 않고 스케줄을 링크 안에 담습니다. 스케줄이 바뀌면 새 링크를 보내야 합니다.</p>
       <div id="familyLinkBox" class="family-link"></div>
       <details class="howto">
         <summary>가족 링크 사용법</summary>
@@ -243,16 +243,16 @@
     </details>
 
     <details id="codesPanel" class="panel fold">
-      <summary class="panel-title">코드 뜻<span id="codesWaiting" class="fold-count" hidden></span></summary>
-      <p class="note">스케줄에 나온 근무 코드를 확인합니다. 뜻이 맞으면 맞음을 누르세요. 확정한 코드는 목록에서 내려가고, 새 스케줄에 처음 보는 코드가 나오면 다시 뜹니다. 달력에 보일 말(4자까지)과 종류는 모든 날짜, 근무표, 캘린더에 한 번에 반영되고, 종류가 휴무인 코드는 항상 초록색 휴무로 보입니다.</p>
+      <summary class="panel-title">코드 관리<span id="codesWaiting" class="fold-count" hidden></span></summary>
+      <p class="note">스케줄에 나온 코드마다 달력에 보일 말, 종류, 뜻을 어디서 가져왔는지, 확정했는지 보여 줍니다. 고친 말과 종류는 모든 날짜, 근무표, 캘린더에 한 번에 반영되고, 종류가 휴무인 코드는 항상 초록색 휴무로 보입니다.</p>
       <div id="codeList" class="code-list"></div>
-      <div class="edit-add code-add">
+      <div class="edit-add code-add" id="codeAddRow">
         <label class="visually-hidden" for="newCode">코드 추가</label>
         <input id="newCode" type="text" placeholder="없는 코드 추가 (예: RSV)" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false">
         <button type="button" id="addCode" class="btn btn-small">추가</button>
       </div>
-      <div class="btn-row">
-        <button type="button" id="resetWords" class="btn btn-quiet">코드 뜻 모두 처음 값으로</button>
+      <div class="btn-row" id="resetWordsRow">
+        <button type="button" id="resetWords" class="btn btn-quiet">고친 코드 모두 처음 값으로</button>
       </div>
     </details>
   </main>
