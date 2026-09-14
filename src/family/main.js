@@ -1443,8 +1443,9 @@
       return;
     }
     var group = groupInfo();
+    if ($('familyHowto')) $('familyHowto').hidden = !!group;
     if (!group) {
-      box.innerHTML = '<p class="note">가족에게 받은 가족 링크를 복사한 뒤 아래 버튼을 누르면 가족 스케줄이 들어오고, 앱을 열 때마다 최신으로 바뀝니다.</p>' +
+      box.innerHTML = '<p class="note">받은 가족 링크를 복사한 뒤 눌러 주세요.</p>' +
         '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-open-receive>받은 링크 넣기</button></div>';
       return;
     }
