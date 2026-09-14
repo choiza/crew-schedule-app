@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 사람 목록은 따로 두고, 스케줄과 설정은 사람마다 다른 자리에 저장한다.
-  // 처음 사람(민주)은 예전 판과 같은 자리를 써서 넣어 둔 스케줄이 그대로 이어진다.
+  // 처음 사람은 예전 판과 같은 자리(id minju)를 써서 넣어 둔 스케줄이 그대로 이어진다. 새로 설치하면 이름은 '나'.
   var PEOPLE_KEY = 'crew-family.people';
   var people = loadPeople();
   var NAME = currentPerson().name;
@@ -25,7 +25,7 @@
       var saved = JSON.parse(localStorage.getItem(PEOPLE_KEY) || 'null');
       if (saved && Array.isArray(saved.list) && saved.list.length) return saved;
     } catch (e) { /* 못 읽으면 처음부터 */ }
-    return { current: 'minju', list: [{ id: 'minju', name: '민주' }] };
+    return { current: 'minju', list: [{ id: 'minju', name: '나' }] };
   }
 
   function savePeople() {
@@ -1259,6 +1259,35 @@
     return joinGroup(group);
   }
 
+  /**
+   * 가족 링크를 넣거나 바꾼 뒤: 가족 명단에 없고 스케줄도 없는 이 폰의 사람을 모두 뺀다.
+   * 아직 아무도 추가하지 않은 가족이면 백지로 두고, 화면이 돌도록 빈 '나' 하나만 남긴다.
+   */
+  function dropEmptyLocals() {
+    function filled(p) {
+      if (p.id === people.current && db) return !!(db.entries && db.entries.length);
+      var stored = {};
+      try { stored = JSON.parse(localStorage.getItem(keyFor(p.id)) || '{}') || {}; } catch (e) { stored = {}; }
+      return !!(stored.entries && stored.entries.length);
+    }
+    var keep = people.list.filter(function (p) { return p.follow || p.name === TEST_NAME || filled(p); });
+    if (keep.length === people.list.length) return;
+    if (!keep.length) keep = [{ id: 'u' + Date.now().toString(36), name: '나' }];
+    people.list = keep;
+    if (!keep.some(function (p) { return p.id === people.current; })) {
+      var next = keep.filter(function (p) { return p.follow; })[0] || keep[0];
+      people.current = next.id;
+      NAME = next.name;
+      KEY = keyFor(next.id);
+      initDb();
+      pickMonth();
+    }
+    savePeople();
+    renderTitle();
+    render();
+    if ($('peopleSheet').open) renderPeople();
+  }
+
   function joinGroup(group) {
     var old = groupInfo();
     if (old && old.salt === group.salt) {
@@ -1276,11 +1305,11 @@
     toast('가족 링크를 넣었습니다. 가족 명단을 받는 중입니다.');
     return pullFamilies(false).then(function () {
       var me = currentPerson();
-      if (me && me.follow) return render();
       var first = people.list.filter(function (p) { return p.follow; })[0];
-      if (first) return switchPerson(first.id, '가족 링크를 넣었습니다. ' + first.name + ' 스케줄을 봅니다.');
+      if (!(me && me.follow) && first) switchPerson(first.id, '가족 링크를 넣었습니다. ' + first.name + ' 스케줄을 봅니다.');
+      dropEmptyLocals();
       render();
-      toast('가족 링크를 넣었습니다. 관리자가 제목을 눌러 사람을 추가하면 여기에 들어옵니다.');
+      if (!first) toast('가족 링크를 넣었습니다. 아직 명단이 없습니다. 관리자가 제목을 눌러 사람을 추가하면 들어옵니다.');
     });
   }
 
@@ -1632,23 +1661,25 @@
   }
 
   function togetherHtml(year, month) {
+    // 그 달에 스케줄이 있는 사람만. 아직 아무것도 안 올라온 사람은 휴무 0일로 보이지 않게 뺀다.
     var list = visiblePeople().map(function (person) {
       var model = personModel(person, year, month);
-      return model ? { name: person.name, model: model } : null;
+      var filled = model && model.days.some(function (day) { return day.kind !== 'none'; });
+      return filled ? { name: person.name, model: model } : null;
     }).filter(Boolean);
     var nav = '<div class="together-nav">' +
       '<button type="button" class="btn btn-small" data-together-shift="-1" aria-label="이전 달">이전 달</button>' +
       '<b>' + year + '년 ' + month + '월</b>' +
       '<button type="button" class="btn btn-small" data-together-shift="1" aria-label="다음 달">다음 달</button></div>';
     if (!list.length) {
-      return nav + '<p class="note">이 달에 스케줄을 넣은 사람이 없어요.</p>';
+      return nav + '<p class="note">이 달에 스케줄이 올라온 사람이 없어요.</p>';
     }
     var cmp = plan.together(list);
     var html = nav + '<h4 class="choices-title">사람마다 휴무</h4><ul class="together-list">' + cmp.offs.map(function (row) {
       return '<li><b>' + esc(row.name) + '</b><span>' + esc(row.text || '없음') + '</span><small>' + row.days.length + '일</small></li>';
     }).join('') + '</ul>';
     if (list.length < 2) {
-      return html + '<p class="note">스케줄을 넣은 사람이 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 보여요. 사람은 관리자 폰에서 제목을 눌러 추가합니다.</p>';
+      return html + '<p class="note">이 달에 스케줄이 올라온 사람만 보입니다. 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 달력에 보여요.</p>';
     }
     html += togetherCalendar(year, month, cmp) +
       '<p class="together-legend"><span class="tg-key is-both"></span>같이 휴무<span class="tg-key is-same"></span>같은 날 같은 도시</p>' +
@@ -2880,7 +2911,10 @@
         (shown.length > 1 ? '<button type="button" class="btn btn-small btn-quiet" data-person-delete="' + esc(person.id) + '">지우기</button>' : '') +
         '</li>';
     }).join('');
-    var linkBlock = !joined
+    var emptyRoster = joined && !people.list.some(function (p) { return p.follow; });
+    var linkBlock = emptyRoster
+      ? '<p class="note">아직 가족 명단이 없습니다. ' + (manager ? '위에서 이름을 적고 추가하면 가족 모두의 폰에 들어갑니다.' : '관리자가 사람을 추가하면 여기에 들어옵니다.') + '</p>'
+      : !joined
       ? '<p class="note">가족 링크는 설정의 "가족 링크, 관리자"에서 넣습니다.</p>'
       : manager
         ? '<p class="note">가족 링크 보내기와 관리자 끄기는 설정의 "가족 링크, 관리자"에 있습니다.</p>'
