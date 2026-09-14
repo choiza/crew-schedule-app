@@ -413,10 +413,41 @@
     return null;
   }
 
+  /**
+   * 여러 사람의 같은 달을 견준다. people: [{ name, model }]
+   * 돌려주는 것: 사람마다 휴무 날, 둘 이상 같이 쉬는 날, 둘 이상 같은 날 같은 해외 도시에 있는 날
+   */
+  function together(list) {
+    var offs = list.map(function (person) {
+      var days = person.model.days.filter(function (day) { return dayType(day) === 'off'; }).map(function (day) { return day.day; });
+      return { name: person.name, days: days, text: ranges(days) };
+    });
+    var length = list.length ? list[0].model.days.length : 0;
+    var both = [], same = [];
+    for (var i = 0; i < length; i++) {
+      var iso = list[0].model.days[i].date;
+      var resting = list.filter(function (person) { return dayType(person.model.days[i]) === 'off'; }).map(function (person) { return person.name; });
+      if (resting.length >= 2) both.push({ date: iso, day: i + 1, names: resting });
+      var byCity = {};
+      list.forEach(function (person) {
+        var day = person.model.days[i];
+        if (!day || !day.place || ['out', 'away', 'turn', 'homeward'].indexOf(day.kind) < 0) return;
+        if (isKorea(day.place.iata)) return;
+        var city = day.place.city || day.place.iata;
+        (byCity[city] = byCity[city] || { city: city, flag: day.place.flag, names: [] }).names.push(person.name);
+      });
+      Object.keys(byCity).forEach(function (city) {
+        if (byCity[city].names.length >= 2) same.push({ date: iso, day: i + 1, city: city, flag: byCity[city].flag, names: byCity[city].names });
+      });
+    }
+    return { offs: offs, together: both, samePlace: same };
+  }
+
   return {
     WEEKDAYS: WEEKDAYS,
     CATEGORIES: CATEGORIES,
     knownCode: function (code) { var key = String(code || '').toUpperCase(); return !!(DEFAULT_WORDS[key] || dictWord(key)); },
+    together: together,
     DEFAULT_WORDS: DEFAULT_WORDS,
     addDays: addDays,
     weekdayOf: weekdayOf,

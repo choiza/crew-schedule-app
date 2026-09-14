@@ -1076,6 +1076,66 @@
       '</div>';
   }
 
+  /* ---------------- 함께 보기 ---------------- */
+
+  /** 저장된 다른 사람의 한 달. 그 사람이 고친 시각, 노선, 코드 뜻을 그대로 쓴다. */
+  function personModel(person, year, month) {
+    if (person.id === people.current) {
+      return isSample() && NAME !== TEST_NAME ? null : modelFor(year, month);
+    }
+    var raw = {};
+    try { raw = JSON.parse(localStorage.getItem(keyFor(person.id)) || '{}') || {}; } catch (e) { raw = {}; }
+    var list = raw.entries || [];
+    var useSample = !list.length && person.name === TEST_NAME;
+    if (useSample) list = sampleEntries();
+    if (!list.length) return null;
+    var fixes = raw.routeFix || {};
+    var overrides = raw.overrides || {};
+    var own = list.map(function (entry) {
+      var fix = entry.type === 'flight' && fixes[entry.code];
+      return fix ? Object.assign({}, entry, { from: fix.from, to: fix.to, route: fix.from + '/' + fix.to }) : entry;
+    });
+    var timeOfOther = function (ev) {
+      if (overrides[overrideKey(ev)]) return overrides[overrideKey(ev)];
+      var row = ((routedata.TIMES && routedata.TIMES.times) || {})[ev.code] || (useSample && C.sample.TIMES ? C.sample.TIMES[ev.code] : null);
+      if (!row) return null;
+      return ev.type === 'in' ? (row.end || null) : (row.start || null);
+    };
+    return plan.buildMonth(year, month, own, { timeOf: timeOfOther, words: raw.words || {} });
+  }
+
+  function togetherHtml(year, month) {
+    var list = people.list.map(function (person) {
+      var model = personModel(person, year, month);
+      return model ? { name: person.name, model: model } : null;
+    }).filter(Boolean);
+    var nav = '<div class="together-nav">' +
+      '<button type="button" class="btn btn-small" data-together-shift="-1" aria-label="이전 달">이전 달</button>' +
+      '<b>' + year + '년 ' + month + '월</b>' +
+      '<button type="button" class="btn btn-small" data-together-shift="1" aria-label="다음 달">다음 달</button></div>';
+    if (!list.length) {
+      return nav + '<p class="note">이 달에 스케줄을 넣은 사람이 없어요.</p>';
+    }
+    var cmp = plan.together(list);
+    var html = nav + '<h4 class="choices-title">사람마다 휴무</h4><ul class="together-list">' + cmp.offs.map(function (row) {
+      return '<li><b>' + esc(row.name) + '</b><span>' + esc(row.text || '없음') + '</span><small>' + row.days.length + '일</small></li>';
+    }).join('') + '</ul>';
+    if (list.length < 2) {
+      return html + '<p class="note">스케줄을 넣은 사람이 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 보여요. 사람은 "스케줄 보는 사람"에서 추가합니다.</p>';
+    }
+    html += '<h4 class="choices-title">같이 쉬는 날</h4>' + (cmp.together.length
+      ? '<ul class="together-list">' + cmp.together.map(function (row) {
+          return '<li><b>' + esc(dateLabel(row.date, true)) + '</b><span>' + esc(row.names.join(', ')) + '</span></li>';
+        }).join('') + '</ul>'
+      : '<p class="note">이 달에는 같이 쉬는 날이 없어요.</p>');
+    html += '<h4 class="choices-title">같은 날 같은 곳</h4>' + (cmp.samePlace.length
+      ? '<ul class="together-list">' + cmp.samePlace.map(function (row) {
+          return '<li><b>' + esc(dateLabel(row.date, true)) + '</b><span>' + (row.flag ? row.flag + ' ' : '') + esc(row.city) + '</span><small>' + esc(row.names.join(', ')) + '</small></li>';
+        }).join('') + '</ul>'
+      : '<p class="note">이 달에는 같은 날 같은 도시에 있는 날이 없어요.</p>');
+    return html;
+  }
+
   /** 고를 수 있는 코드: 근무 코드 사전과 대한항공 노선 시드. 한 번 만들어 둔다. */
   var codeGroups = null;
 
@@ -2032,6 +2092,8 @@
     });
     $('customTimes').innerHTML = custom.join('');
 
+    if ($('togetherBody')) $('togetherBody').innerHTML = togetherHtml(state.year, state.month);
+
     var codes = allCodes();
     var waiting = waitingCodes();
     // 확인할 코드가 있으면 접힌 제목 옆에 개수를 단다
@@ -2506,6 +2568,14 @@
     if (target.id === 'applyPreview') return applyPending();
     if (target.id === 'pasteGo') return readPaste();
     if (target.id === 'exportMonth') return exportMonth();
+    if (data.togetherShift) {
+      state.month += +data.togetherShift;
+      if (state.month < 1) { state.month = 12; state.year -= 1; }
+      if (state.month > 12) { state.month = 1; state.year += 1; }
+      render();
+      $('togetherBody').innerHTML = togetherHtml(state.year, state.month);
+      return;
+    }
     if (target.id === 'adminOn') {
       admin.on = true;
       saveAdmin();

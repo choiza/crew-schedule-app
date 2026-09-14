@@ -153,3 +153,21 @@ test('대한항공 자료에서 확인한 코드를 가족 말로 옮긴다', ()
   assert.deepStrictEqual(w('ABS'), ['결근', 'work']);
   assert.match(plan.wordFor('ADO', 'unknown', {}).long, /자동 휴무/);
 });
+
+test('여러 사람의 휴무, 같이 쉬는 날, 같은 날 같은 곳을 견준다', () => {
+  const a = sampleMonth();
+  // 두 번째 사람: 7일은 일하고, 22일은 같은 파리에 있고, 11일은 같이 쉰다
+  const entries = sampleEntries().filter((e) => e.date !== '2026-09-07');
+  entries.push({ date: '2026-09-07', code: 'GRD', type: 'duty', category: 'work' });
+  const b = plan.buildMonth(2026, 9, entries, { timeOf });
+  const cmp = plan.together([{ name: '민주', model: a }, { name: '지훈', model: b }]);
+  assert.deepStrictEqual(cmp.offs.map((o) => [o.name, o.days.length]), [['민주', 10], ['지훈', 9]]);
+  assert.strictEqual(cmp.offs[0].text, '1, 7~8, 11~12, 17, 20, 26~27, 30');
+  assert.ok(cmp.together.some((t) => t.date === '2026-09-11' && t.names.join() === '민주,지훈'));
+  assert.ok(!cmp.together.some((t) => t.date === '2026-09-07'));
+  const paris = cmp.samePlace.find((s) => s.date === '2026-09-22');
+  assert.deepStrictEqual([paris.city, paris.names], ['파리', ['민주', '지훈']]);
+  // 한 사람만 있으면 같이 쉬는 날과 같은 곳은 없다
+  const one = plan.together([{ name: '민주', model: a }]);
+  assert.deepStrictEqual([one.together.length, one.samePlace.length], [0, 0]);
+});
