@@ -612,7 +612,9 @@
       if (day.weekday === 0) classes.push('is-sun');
       if (day.date === today) classes.push('is-today');
       if (db.edited[day.date]) classes.push('is-edited');
+      // 긴 도시 이름은 글자를 줄이고, 그래도 넘치면 두 줄로 흐르게 한다
       if (cellName(day.short).length >= 4) classes.push('is-long');
+      if (cellName(day.short).length >= 6) classes.push('is-xlong');
       var holiday = holidayOf(day.date);
       if (holiday) classes.push('is-holiday');
       var label = dateLabel(day.date, true) + (holiday ? ' ' + holiday : '') +
