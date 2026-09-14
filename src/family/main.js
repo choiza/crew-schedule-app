@@ -844,10 +844,16 @@
       '<ul class="bus-steps">' + steps.map(function (step) {
         return '<li><span>' + esc(step[0]) + '</span><b>' + esc(step[1]) + '</b></li>';
       }).join('') + '</ul>' +
+      // 예매 전: 버스타고 예매, 예매했어요. 예매 뒤: 다른 시간 차로 바꾸기, 예매 취소.
+      // 예매한 차가 안 맞으면 버스타고에서 표를 바꿔야 하니 그때만 버스타고 버튼을 둔다.
       (editable
-        ? '<div class="btn-row">' + prefilledBooking(ev, shown, direction, !raw) + (raw
-          ? '<button type="button" class="btn btn-grow" data-unbook="' + esc(key) + '">예매 취소</button>'
-          : '<button type="button" class="btn btn-grow" data-book="' + esc(bookValue(ev, direction, shown)) + '">예매했어요</button>') +
+        ? '<div class="btn-row">' + (raw
+          ? (broken
+            ? prefilledBooking(ev, shown, direction, true).replace('버스타고에서 예매', '버스타고에서 바꾸기')
+            : '<button type="button" class="btn btn-grow" data-open-tune="' + direction + '">다른 시간 차로 바꾸기</button>') +
+            '<button type="button" class="btn btn-grow" data-unbook="' + esc(key) + '">예매 취소</button>'
+          : prefilledBooking(ev, shown, direction, true) +
+            '<button type="button" class="btn btn-grow" data-book="' + esc(bookValue(ev, direction, shown)) + '">예매했어요</button>') +
           '</div>'
         : '') +
       (direction === 'out' ? '<div class="btn-row">' + alarmButton(shown, ev) + '</div>' : '') +
@@ -3419,6 +3425,17 @@
       save();
       renderInstall();
       return toast('설치 안내는 설정 화면에서 다시 볼 수 있어요.');
+    }
+    if (data.openTune) {
+      // 예매한 뒤 다른 시간 차: 자세히를 펼쳐 다른 차 목록과 시간 고치기를 보여 준다
+      var card = target.closest('.bus-card');
+      var tune = card && card.querySelector('details.bus-more');
+      if (!tune) return;
+      state.tuneOpen = state.tuneOpen || {};
+      state.tuneOpen[data.openTune] = true;
+      tune.open = true;
+      tune.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
     }
     if ((data.book || data.unbook) && !canEdit()) return toast('버스 예매는 관리자 폰에서만 합니다.');
     if (data.book) {
