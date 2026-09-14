@@ -443,11 +443,30 @@
     return { offs: offs, together: both, samePlace: same };
   }
 
+  /**
+   * 새 스케줄이 들어와도 버스 예매 표시를 이어 쓴다.
+   * 예매 키는 '날짜|편명|방향'. 같은 날짜에 같은 편명이 남아 있는 것만 남기고, 없어진 비행의 표시는 버린다.
+   * 비행 시각만 바뀐 경우는 남기고, 예매한 차가 안 맞는지는 화면에서 따로 알린다.
+   */
+  function keepBookings(booked, entries) {
+    var alive = {};
+    (entries || []).forEach(function (entry) {
+      if (entry && entry.type === 'flight') alive[entry.date + '|' + String(entry.code || '').toUpperCase()] = true;
+    });
+    var kept = {};
+    Object.keys(booked || {}).forEach(function (key) {
+      var parts = key.split('|');
+      if (parts.length >= 2 && alive[parts[0] + '|' + parts[1]]) kept[key] = booked[key];
+    });
+    return kept;
+  }
+
   return {
     WEEKDAYS: WEEKDAYS,
     CATEGORIES: CATEGORIES,
     knownCode: function (code) { var key = String(code || '').toUpperCase(); return !!(DEFAULT_WORDS[key] || dictWord(key)); },
     together: together,
+    keepBookings: keepBookings,
     DEFAULT_WORDS: DEFAULT_WORDS,
     addDays: addDays,
     weekdayOf: weekdayOf,

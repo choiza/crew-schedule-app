@@ -46,6 +46,16 @@
      */
     SHARE: {
       baseUrl: 'https://choiza.github.io/crew-schedule-app/family.html'
+    },
+
+    /* 가족 링크(늘 최신). Supabase 프로젝트의 Project URL 과 공개(anon, publishable) 키.
+     * 저장소에는 폰에서 잠근 글자만 올라가고, 푸는 열쇠는 가족 링크 안에만 있다.
+     * scripts/supabase-share.sql 을 먼저 SQL Editor 에서 실행해 둔다. 비워 두면 기능이 꺼진다.
+     * 모든 데이터를 바꿀 수 있는 비밀(secret) 키는 절대 넣지 않는다.
+     */
+    SYNC: {
+      url: 'https://tnjaukfafrtfjmijjcjg.supabase.co',
+      anonKey: 'sb_publishable_m-ruZDwMemxCGVxxWq350Q_Du6JcHqD'
     }
   };
 })(typeof self !== 'undefined' ? self : this);

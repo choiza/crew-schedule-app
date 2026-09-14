@@ -1465,3 +1465,8 @@ details.fold[open] > summary { margin-bottom: 12px; }
 }
 .share-months { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .share-month { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+
+/* 가족 링크 (늘 최신) */
+.family-link { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.family-link .choices-title { margin: 0; }
+.family-link .note, .family-link .callout, .family-link .share-link { margin: 0; }

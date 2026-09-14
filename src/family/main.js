@@ -11,6 +11,7 @@
   var ocr = C.ocr, routedata = C.routedata, airports = C.airports, flightstatus = C.flightstatus;
   var flighttime = C.flighttime;
   var share = C.share;
+  var sync = C.sync;
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 사람 목록은 따로 두고, 스케줄과 설정은 사람마다 다른 자리에 저장한다.
@@ -115,6 +116,7 @@
     } catch (e) {
       toast('이 브라우저에 저장하지 못했습니다. 개인 정보 보호 모드를 끄고 다시 해 주세요.');
     }
+    if (typeof scheduleFamilyUpload === 'function') scheduleFamilyUpload();
   }
 
   /** 파서 결과에서 달력에 필요한 것만 남긴다. 노선도 이때 채운다. */
@@ -152,9 +154,18 @@
     return admin && admin.source === 'real' ? 'real' : 'sample';
   }
 
-  /** 예시는 이름이 '테스트'이고 테스트 모드에서 예시를 골랐을 때만 보여 준다. 다른 사람은 스케줄이 없으면 빈 달력이다. */
+  function testMode() {
+    return !!(admin && admin.on);
+  }
+
+  /** 테스트 모드가 꺼져 있으면 테스트 사람은 목록과 함께 보기에서 숨긴다. */
+  function visiblePeople() {
+    return people.list.filter(function (p) { return testMode() || p.name !== TEST_NAME; });
+  }
+
+  /** 예시는 테스트 모드가 켜져 있고, 이름이 '테스트'이고, 예시를 골랐을 때만 보여 준다. 다른 사람은 스케줄이 없으면 빈 달력이다. */
   function isSample() {
-    return NAME === TEST_NAME && testSource() === 'sample';
+    return testMode() && NAME === TEST_NAME && testSource() === 'sample';
   }
   function rawEntries() { return isSample() ? sampleEntries() : db.entries; }
 
@@ -1231,6 +1242,309 @@
     toast(name + ' 스케줄을 넣었습니다.');
   }
 
+  /* ---------------- 가족 링크 (늘 최신) ---------------- */
+
+  var familyTimer = null;
+  var familyBusy = false;
+
+  function familyOn() {
+    return !!(sync && config.SYNC && sync.enabled(config.SYNC) && sync.available());
+  }
+
+  function familyApi() { return sync.client(config.SYNC); }
+
+  function personById(id) {
+    return people.list.filter(function (p) { return p.id === id; })[0] || null;
+  }
+
+  function clockText(iso) {
+    if (!iso) return '아직 없음';
+    var d = new Date(iso);
+    return (d.getMonth() + 1) + '월 ' + d.getDate() + '일 ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function familyPayload() {
+    return { app: 'crew-family-sync', v: 1, name: NAME, entries: db.entries, words: db.words, routeFix: db.routeFix, overrides: db.overrides, booked: db.booked || {} };
+  }
+
+  /**
+   * 스케줄을 넣거나 고칠 때마다 몇 초 뒤 잠가서 올린다. 받는 사람의 폰은 올리지 않는다.
+   * 넣은 스케줄이 있으면 가족 링크를 저절로 만든다. 사람이 끈 링크는 다시 켤 때까지 만들지 않는다.
+   */
+  function scheduleFamilyUpload() {
+    if (!db || !familyOn()) return;
+    var me = currentPerson();
+    if (me && me.follow) return;
+    if (NAME === TEST_NAME) return;
+    if (!db.familyLink) {
+      if (!db.entries.length || db.familyOff) return;
+      db.familyLink = sync.newLink();
+    }
+    db.familyLink.dirty = true;
+    saveQuiet();
+    clearTimeout(familyTimer);
+    familyTimer = setTimeout(function () { uploadFamily(false); }, 3000);
+  }
+
+  function saveQuiet() {
+    try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* 다음 저장 때 다시 */ }
+  }
+
+  function uploadFamily(manual) {
+    var link = db.familyLink;
+    if (!link || !familyOn()) return Promise.resolve();
+    if (familyBusy) return Promise.resolve();
+    familyBusy = true;
+    return sync.seal(familyPayload(), link.key)
+      .then(function (cipher) { return familyApi().put(link.id, cipher, link.token); })
+      .then(function (serverTime) {
+        link.sentAt = typeof serverTime === 'string' ? serverTime : new Date().toISOString();
+        link.error = '';
+        link.dirty = false;
+        saveQuiet();
+        if (manual) toast('가족 링크에 최신 스케줄을 올렸습니다.');
+      }, function (err) {
+        link.error = err.message;
+        saveQuiet();
+        if (manual) toast(err.message);
+      })
+      .then(function () {
+        familyBusy = false;
+        if (state.view === 'settings') renderFamilyBox();
+      });
+  }
+
+  /**
+   * 올리는 폰: 못 올린 변경이 있으면 다시 올린다. 없으면 다른 폰이 더 새로 올렸는지 보고 받아 온다.
+   * 같은 사람을 폰 두 대에서 올릴 때 오래된 폰이 새 스케줄을 덮어쓰지 않게 한다.
+   */
+  function syncWriter() {
+    var link = db && db.familyLink;
+    var me = currentPerson();
+    if (!link || !familyOn() || (me && me.follow) || NAME === TEST_NAME) return Promise.resolve();
+    if (link.dirty) return uploadFamily(false);
+    return familyApi().get(link.id).then(function (row) {
+      if (!row) return uploadFamily(false);
+      if (link.sentAt && row.updatedAt && Date.parse(row.updatedAt) <= Date.parse(link.sentAt) + 1000) return null;
+      return sync.open(row.cipher, link.key).then(function (payload) {
+        payload = cleanFamily(payload);
+        if (!payload.entries.length) return null;
+        db.entries = payload.entries;
+        db.words = payload.words || {};
+        db.routeFix = payload.routeFix || {};
+        db.overrides = payload.overrides || {};
+        db.booked = plan.keepBookings(Object.assign({}, db.booked || {}, payload.booked || {}), db.entries);
+        link.sentAt = row.updatedAt;
+        saveQuiet();
+        render();
+      });
+    }).catch(function (err) {
+      link.error = err.message;
+      saveQuiet();
+    });
+  }
+
+  /** 받는 사람들의 최신 스케줄을 받아 그 사람 자리에 넣는다. */
+  function pullFamilies(manual) {
+    if (!familyOn()) {
+      if (manual) toast('가족 링크 저장소가 연결되지 않았습니다.');
+      return Promise.resolve();
+    }
+    syncWriter();
+    var followers = people.list.filter(function (p) { return p.follow; });
+    return Promise.all(followers.map(function (person) {
+      return familyApi().get(person.follow.id).then(function (row) {
+        if (!row) throw new Error(person.name + ' 스케줄이 아직 올라오지 않았습니다.');
+        return sync.open(row.cipher, person.follow.key);
+      }).then(function (payload) {
+        payload = cleanFamily(payload);
+        var mine = person.id === people.current;
+        var target = mine ? db : {};
+        if (!mine) {
+          try { target = JSON.parse(localStorage.getItem(keyFor(person.id)) || '{}') || {}; } catch (e) { target = {}; }
+        }
+        target.entries = payload.entries;
+        target.words = payload.words || {};
+        target.routeFix = payload.routeFix || {};
+        target.overrides = payload.overrides || {};
+        target.booked = plan.keepBookings(Object.assign({}, target.booked || {}, payload.booked || {}), payload.entries);
+        if (mine) saveQuiet(); else localStorage.setItem(keyFor(person.id), JSON.stringify(target));
+        person.follow.at = new Date().toISOString();
+        person.follow.error = '';
+        return mine;
+      }).catch(function (err) {
+        person.follow.error = err.message;
+        if (manual) toast(err.message);
+        return false;
+      });
+    })).then(function (results) {
+      savePeople();
+      if (results.some(Boolean)) render();
+      else if (state.view === 'settings') renderFamilyBox();
+      if (manual && followers.length && !followers.some(function (p) { return p.follow.error; })) toast('최신 스케줄을 받았습니다.');
+    });
+  }
+
+  function cleanFamily(payload) {
+    if (!payload || payload.app !== 'crew-family-sync' || !Array.isArray(payload.entries)) throw new Error('이 앱의 가족 링크가 아닙니다.');
+    payload.entries = payload.entries.filter(function (entry) {
+      return entry && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) && /^[A-Z0-9]{1,8}$/.test(String(entry.code || ''));
+    }).slice(0, 5000);
+    return payload;
+  }
+
+  function renderFamilyBox() {
+    var box = $('familyLinkBox');
+    if (!box) return;
+    var me = currentPerson();
+    var html = '<h4 class="choices-title">가족 링크 (늘 최신)</h4>';
+    if (!sync || !config.SYNC || !sync.enabled(config.SYNC)) {
+      box.innerHTML = html + '<p class="note">링크 하나로 가족이 늘 최신 스케줄을 보려면 저장소 연결이 필요합니다. 아직 연결되지 않았습니다.</p>';
+      return;
+    }
+    if (!sync.available()) {
+      box.innerHTML = html + '<p class="note">이 주소(' + esc(location.host) + ')에서는 브라우저가 암호화를 막습니다. GitHub 주소나 안드로이드 앱에서 열어 주세요.</p>';
+      return;
+    }
+    if (me && me.follow) {
+      box.innerHTML = html +
+        '<p class="note">' + esc(NAME) + ' 스케줄을 가족 링크로 받고 있습니다. 앱을 열 때와 30분마다 최신으로 바뀝니다. 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) + '</p>' +
+        (me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
+        '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
+        '<button type="button" class="btn btn-grow btn-quiet" data-family-unfollow>받기 그만두기</button></div>';
+      return;
+    }
+    var link = db.familyLink;
+    if (!link) {
+      box.innerHTML = html + (db.familyOff
+        ? '<p class="note">가족 링크를 꺼 두었습니다. 다시 켜면 새 링크가 생기니 가족에게 새로 보내 주세요.</p>' +
+          '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-make>가족 링크 다시 켜기</button></div>'
+        : '<p class="note">스케줄을 넣으면 가족 링크가 저절로 생기고, 넣거나 고칠 때마다 이 폰에서 잠가 올립니다. 가족은 링크를 한 번만 받으면 늘 최신을 봅니다.</p>' +
+          (db.entries.length ? '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-make>가족 링크 만들기</button></div>' : ''));
+      return;
+    }
+    var url = sync.linkFor(shareBaseUrl(), link.id, link.key);
+    box.innerHTML = html +
+      '<p class="share-link">' + esc(url) + '</p>' +
+      '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-send>링크 보내기</button>' +
+        '<button type="button" class="btn btn-grow" data-family-copy>링크 복사</button></div>' +
+      '<p class="note">스케줄을 넣거나 고치면 자동으로 올라갑니다. 마지막으로 올린 때: ' + esc(clockText(link.sentAt)) + '. 링크를 가진 사람은 누구나 보니 가족에게만 보내 주세요.</p>' +
+      (link.error ? '<p class="callout">' + esc(link.error) + '</p>' : '') +
+      '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-push>지금 올리기</button>' +
+        '<button type="button" class="btn btn-grow btn-quiet" data-family-stop>가족 링크 끄기</button></div>';
+  }
+
+  var incomingFamily = null; // { id, key, token, name, payload, empty }
+
+  function familyReceiveHtml(error) {
+    var head = '<header class="sheet-head"><p class="eyebrow">' + (incomingFamily && incomingFamily.token ? '올리기 링크' : '가족 링크') + '</p>';
+    if (error) {
+      return head + '<h2 id="shareTitle" class="display">열 수 없어요</h2><p class="lede">' + esc(error) + '</p></header>' +
+        '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-dismiss>닫기</button></div>';
+    }
+    if (!incomingFamily.payload) {
+      return head + '<h2 id="shareTitle" class="display">스케줄을 확인하는 중</h2></header>';
+    }
+    var payload = incomingFamily.payload;
+    var name = shareName(payload);
+    var existing = people.list.filter(function (p) { return p.name === name; })[0];
+    var target = existing ? existing.id : 'new';
+    var months = {};
+    payload.entries.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
+    var monthText = Object.keys(months).sort().map(function (m) { return (+m.slice(5, 7)) + '월'; }).join(', ');
+    if (incomingFamily.token) {
+      return head + '<h2 id="shareTitle" class="display">' + esc(name) + ' 스케줄 올리기</h2>' +
+        '<p class="lede">이 폰을 ' + esc(name) + ' 스케줄을 올리는 폰으로 정합니다. 캡처를 넣거나 고치면 잠가서 자동으로 올리고, 가족은 보기 링크로 늘 최신을 봅니다.</p></header>' +
+        (monthText ? '<p class="note">이미 올라온 스케줄(' + esc(monthText) + ')을 이 폰으로 가져옵니다.</p>' : '') +
+        '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-accept="' + esc(target) + '">' + esc(name) + ' 스케줄 올리는 폰으로 정하기</button>' +
+          '<button type="button" class="btn btn-grow" data-family-dismiss>그만두기</button></div>' +
+        '<p class="note">이 링크는 ' + esc(name) + ' 본인만 쓰세요. 링크를 가진 사람은 스케줄을 바꿀 수 있습니다.</p>';
+    }
+    return head + '<h2 id="shareTitle" class="display">' + esc(name) + ' 스케줄</h2>' +
+      '<p class="lede">' + (monthText ? esc(monthText) + '. ' : '아직 올라온 스케줄이 없습니다. ') + '이 폰에서 늘 최신으로 받아 봅니다.</p></header>' +
+      '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-accept="' + esc(target) + '">' +
+        esc(name) + (existing ? '로 받기 시작' : ' 추가해서 받기 시작') + '</button>' +
+        '<button type="button" class="btn btn-grow" data-family-dismiss>그만두기</button></div>' +
+      '<p class="note">받는 사람의 스케줄은 보낸 사람 것으로 계속 바뀝니다. 이 폰에서 고친 내용은 다음에 받을 때 덮어써집니다.</p>';
+  }
+
+  function openFamilyReceive(found) {
+    incomingFamily = { id: found.id, key: found.key, token: found.token || null, name: found.name || null, payload: null };
+    if (!$('shareSheet').open) $('shareSheet').showModal();
+    if (!familyOn()) {
+      $('shareBody').innerHTML = familyReceiveHtml(sync && sync.available()
+        ? '이 앱에 가족 링크 저장소가 연결되지 않았습니다. 앱을 새로 받아 주세요.'
+        : '이 주소에서는 브라우저가 암호화를 막습니다. GitHub 주소나 안드로이드 앱에서 링크를 열어 주세요.');
+      return;
+    }
+    $('shareBody').innerHTML = familyReceiveHtml();
+    familyApi().get(found.id).then(function (row) {
+      // 아직 아무도 올리지 않은 링크: 이름만으로 받기 시작하거나 올리는 폰으로 정한다
+      if (!row) return { app: 'crew-family-sync', v: 1, name: found.name || '가족', entries: [], empty: true };
+      return sync.open(row.cipher, found.key);
+    }).then(function (payload) {
+      if (found.name && !payload.name) payload.name = found.name;
+      incomingFamily.payload = cleanFamily(payload);
+      $('shareBody').innerHTML = familyReceiveHtml();
+    }).catch(function (err) {
+      $('shareBody').innerHTML = familyReceiveHtml(err.message);
+    });
+  }
+
+  function acceptFamily(targetId) {
+    var payload = incomingFamily.payload;
+    var name = shareName(payload);
+    var id = targetId;
+    if (id === 'new') {
+      id = 'u' + Date.now().toString(36);
+      people.list.push({ id: id, name: name });
+    }
+    var person = personById(id);
+    var writer = !!incomingFamily.token;
+    if (writer) {
+      delete person.follow;
+    } else {
+      person.follow = { id: incomingFamily.id, key: incomingFamily.key, at: new Date().toISOString(), error: '' };
+    }
+    savePeople();
+    var target = { entries: payload.entries, words: payload.words || {}, routeFix: payload.routeFix || {}, overrides: payload.overrides || {} };
+    var incomingBooked = payload.booked || {};
+    if (writer) {
+      target.familyLink = { id: incomingFamily.id, key: incomingFamily.key, token: incomingFamily.token };
+      delete target.familyOff;
+    }
+    if (id === people.current) {
+      if (payload.entries.length) {
+        db.entries = target.entries; db.words = target.words; db.routeFix = target.routeFix; db.overrides = target.overrides;
+        db.booked = plan.keepBookings(Object.assign({}, db.booked || {}, incomingBooked), db.entries);
+      }
+      if (writer) { db.familyLink = target.familyLink; delete db.familyOff; }
+      saveQuiet();
+    } else {
+      var old = {};
+      try { old = JSON.parse(localStorage.getItem(keyFor(id)) || '{}') || {}; } catch (e) { old = {}; }
+      if (!payload.entries.length) {
+        // 아직 올라온 스케줄이 없으면 이 폰에 있던 스케줄을 지우지 않는다. 올리는 폰이면 그대로 올린다.
+        delete target.entries; delete target.words; delete target.routeFix; delete target.overrides;
+      } else {
+        target.booked = plan.keepBookings(Object.assign({}, old.booked || {}, incomingBooked), target.entries);
+      }
+      localStorage.setItem(keyFor(id), JSON.stringify(Object.assign(old, target)));
+    }
+    incomingFamily = null;
+    if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + location.search);
+    $('shareSheet').close();
+    var done = writer ? name + ' 스케줄을 올리는 폰으로 정했습니다. 캡처를 넣으면 가족에게 올라갑니다.' : name + ' 스케줄을 받기 시작했습니다.';
+    if (id !== people.current) {
+      switchPerson(id, done);
+    } else {
+      render();
+      go('calendar');
+      toast(done);
+    }
+    if (writer) scheduleFamilyUpload();
+  }
+
   /* ---------------- 함께 보기 ---------------- */
 
   /** 저장된 다른 사람의 한 달. 그 사람이 고친 시각, 노선, 코드 뜻을 그대로 쓴다. */
@@ -1260,7 +1574,7 @@
   }
 
   function togetherHtml(year, month) {
-    var list = people.list.map(function (person) {
+    var list = visiblePeople().map(function (person) {
       var model = personModel(person, year, month);
       return model ? { name: person.name, model: model } : null;
     }).filter(Boolean);
@@ -2075,6 +2389,7 @@
     var months = {};
     pending.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
     db.entries = db.entries.filter(function (entry) { return !months[entry.date.slice(0, 7)]; }).concat(pending);
+    db.booked = plan.keepBookings(db.booked, db.entries);
     Object.keys(db.edited).forEach(function (iso) { if (months[iso.slice(0, 7)]) delete db.edited[iso]; });
     var first = Object.keys(months).sort()[0];
     pending = null;
@@ -2253,6 +2568,7 @@
     $('customTimes').innerHTML = custom.join('');
 
     if ($('togetherBody')) $('togetherBody').innerHTML = togetherHtml(state.year, state.month);
+    renderFamilyBox();
 
     var codes = allCodes();
     var waiting = waitingCodes();
@@ -2486,14 +2802,15 @@
   }
 
   function renderPeople() {
-    var list = people.list.map(function (person) {
+    var shown = visiblePeople();
+    var list = shown.map(function (person) {
       var on = person.id === people.current;
       return '<li class="person' + (on ? ' is-current' : '') + '">' +
         '<button type="button" class="person-main" data-person-switch="' + esc(person.id) + '"' + (on ? ' aria-current="true"' : '') + '>' +
           '<span class="person-dot" aria-hidden="true"></span><span class="person-name">' + esc(person.name) + '</span>' +
           (on ? '<span class="route-chip">보는 중</span>' : '') + '</button>' +
         '<button type="button" class="icon-btn" data-person-rename="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 이름 바꾸기">' + ICON.edit + '</button>' +
-        (people.list.length > 1 ? '<button type="button" class="icon-btn" data-person-delete="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 지우기">' + ICON.trash + '</button>' : '') +
+        (shown.length > 1 ? '<button type="button" class="icon-btn" data-person-delete="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 지우기">' + ICON.trash + '</button>' : '') +
         '</li>';
     }).join('');
     $('peopleBody').innerHTML =
@@ -2741,6 +3058,8 @@
     if (target.hasAttribute('data-open-receive')) {
       var pasted = window.prompt('가족에게 받은 스케줄 링크를 붙여 넣어 주세요.');
       if (!pasted) return;
+      var pastedFamily = sync && sync.fromHash(pasted.slice(pasted.indexOf('#')));
+      if (pastedFamily) return openFamilyReceive(pastedFamily);
       var pastedToken = share && share.tokenFrom(pasted);
       if (!pastedToken) return toast('스케줄 링크가 아닙니다. 링크 전체를 붙여 넣어 주세요.');
       return openReceive(pastedToken, share.keyFrom(pasted));
@@ -2790,6 +3109,48 @@
     if (target.hasAttribute('data-share-dismiss')) {
       clearShareHash();
       incomingShare = null;
+      return $('shareSheet').close();
+    }
+    if (target.hasAttribute('data-family-make')) {
+      if (!db.entries.length) return toast('올릴 넣은 스케줄이 없습니다. 캡처를 먼저 넣어 주세요.');
+      delete db.familyOff;
+      db.familyLink = sync.newLink();
+      saveQuiet();
+      renderFamilyBox();
+      return uploadFamily(true);
+    }
+    if (target.hasAttribute('data-family-send') && db.familyLink) {
+      return shareText(NAME + ' 스케줄 가족 링크입니다. 한 번 넣어 두면 늘 최신으로 보여요.\n' + sync.linkFor(shareBaseUrl(), db.familyLink.id, db.familyLink.key));
+    }
+    if (target.hasAttribute('data-family-copy') && db.familyLink) {
+      return copyText(sync.linkFor(shareBaseUrl(), db.familyLink.id, db.familyLink.key), '가족 링크를 복사했습니다.');
+    }
+    if (target.hasAttribute('data-family-push')) return uploadFamily(true);
+    if (target.hasAttribute('data-family-stop') && db.familyLink) {
+      if (!window.confirm('가족 링크를 끌까요? 저장소의 스케줄을 지우고, 이 링크를 받은 가족은 더 이상 새 스케줄을 받지 못합니다.')) return;
+      var stopping = db.familyLink;
+      return familyApi().remove(stopping.id, stopping.token).then(function () {
+        delete db.familyLink;
+        db.familyOff = true;
+        saveQuiet();
+        renderFamilyBox();
+        toast('가족 링크를 껐습니다.');
+      }, function (err) { toast(err.message); });
+    }
+    if (target.hasAttribute('data-family-pull')) return pullFamilies(true);
+    if (target.hasAttribute('data-family-unfollow')) {
+      var follower = currentPerson();
+      if (!follower || !follower.follow) return;
+      if (!window.confirm(NAME + ' 스케줄 받기를 그만둘까요? 지금까지 받은 스케줄은 이 폰에 남습니다.')) return;
+      delete follower.follow;
+      savePeople();
+      renderFamilyBox();
+      return toast('받기를 그만뒀습니다.');
+    }
+    if (data.familyAccept && incomingFamily && incomingFamily.payload) return acceptFamily(data.familyAccept);
+    if (target.hasAttribute('data-family-dismiss')) {
+      incomingFamily = null;
+      if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + location.search);
       return $('shareSheet').close();
     }
     if (data.togetherShift) {
@@ -2846,6 +3207,10 @@
     if (target.id === 'adminOff') {
       admin = {};
       saveAdmin();
+      if (NAME === TEST_NAME) {
+        var backPerson = visiblePeople()[0];
+        if (backPerson) return switchPerson(backPerson.id, '테스트 모드를 껐습니다. ' + backPerson.name + ' 스케줄로 돌아갑니다.');
+      }
       render();
       return toast('테스트 모드를 껐습니다.');
     }
@@ -3205,6 +3570,18 @@
 
   /* ---------------- 시작 ---------------- */
 
+  // 테스트 사람을 보다가 테스트 모드를 끈 채로 다시 열었으면 다른 사람으로 연다
+  if (!testMode() && NAME === TEST_NAME) {
+    var startPerson = visiblePeople()[0];
+    if (startPerson) {
+      people.current = startPerson.id;
+      savePeople();
+      NAME = startPerson.name;
+      KEY = keyFor(startPerson.id);
+      initDb();
+    }
+  }
+
   var now = nowDate();
   $('pasteMonth').value = now.getFullYear() + '-' + pad(now.getMonth() + 1);
   pickMonth();
@@ -3213,7 +3590,21 @@
   renderAds();
 
   // 공유 링크로 열었으면 스케줄을 풀어 넣을지 묻는다
-  if (share && share.tokenFrom(location.hash)) openReceive(share.tokenFrom(location.hash), share.keyFrom(location.hash));
+  if (sync && sync.fromHash(location.hash)) {
+    openFamilyReceive(sync.fromHash(location.hash));
+  } else if (share && share.tokenFrom(location.hash)) {
+    openReceive(share.tokenFrom(location.hash), share.keyFrom(location.hash));
+  }
+
+  // 넣어 둔 스케줄이 있는데 아직 가족 링크가 없으면 만들어 올린다
+  scheduleFamilyUpload();
+
+  // 가족 링크로 받는 사람은 열 때, 30분마다, 다시 볼 때 최신으로
+  pullFamilies(false);
+  setInterval(function () { pullFamilies(false); }, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') pullFamilies(false);
+  });
 
   // 해외 체류 중이면 현지 시각이 흐른다
   setInterval(renderTicket, 60 * 1000);

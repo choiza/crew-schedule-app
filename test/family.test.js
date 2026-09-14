@@ -171,3 +171,18 @@ test('여러 사람의 휴무, 같이 쉬는 날, 같은 날 같은 곳을 견�
   const one = plan.together([{ name: '민주', model: a }]);
   assert.deepStrictEqual([one.together.length, one.samePlace.length], [0, 0]);
 });
+
+test('새 스케줄이 들어와도 같은 날짜 같은 편명의 버스 예매는 남는다', () => {
+  const booked = {
+    '2026-09-03|KE0017|out': { route: '5400', stop: 'miguem', board: 540 },
+    '2026-09-06|KE0018|in': { route: '5400', stop: 'miguem', board: 1140 },
+    '2026-09-13|KE0651|out': { route: '5300', stop: 'seohyeon', board: 900 }
+  };
+  const next = sampleEntries()
+    .filter((e) => e.date !== '2026-09-13')
+    .concat([{ date: '2026-09-13', code: 'KE0659', type: 'flight', category: 'flight' }]);
+  const kept = plan.keepBookings(booked, next);
+  assert.deepStrictEqual(Object.keys(kept).sort(), ['2026-09-03|KE0017|out', '2026-09-06|KE0018|in']);
+  assert.deepStrictEqual(kept['2026-09-03|KE0017|out'], booked['2026-09-03|KE0017|out']);
+  assert.deepStrictEqual(plan.keepBookings(null, next), {});
+});
