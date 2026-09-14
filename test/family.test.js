@@ -119,3 +119,27 @@ test('휴일 날짜를 범위로 줄인다', () => {
   assert.strictEqual(plan.ranges([1, 7, 8, 11, 12, 17, 20, 26, 27, 30]), '1, 7~8, 11~12, 17, 20, 26~27, 30');
   assert.strictEqual(plan.ranges([]), '');
 });
+
+test('기본 뜻에 없는 코드도 근무 코드 사전에서 뜻을 찾는다', () => {
+  const w = (code) => { const x = plan.wordFor(code, 'unknown', {}); return [x.short, x.category]; };
+  assert.deepStrictEqual(w('GDO'), ['휴무', 'off']);
+  assert.deepStrictEqual(w('HSBY'), ['자택대기', 'standby']);
+  assert.deepStrictEqual(w('ANL'), ['휴가', 'vacation']);
+  assert.deepStrictEqual(w('SIM'), ['교육', 'training']);
+  assert.deepStrictEqual(w('SICK'), ['병가', 'vacation']);
+  assert.deepStrictEqual(w('OFC'), ['사무근무', 'work']);
+  assert.deepStrictEqual(w('ATDO'), ['휴무', 'off']);
+  assert.strictEqual(plan.knownCode('rsv'), true);
+  assert.strictEqual(plan.knownCode('ZZZ'), false);
+  // 사전에 있어도 사람이 고친 뜻이 먼저
+  assert.deepStrictEqual(plan.wordFor('GDO', 'unknown', { GDO: { short: '보장', category: 'off' } }).short, '보장');
+});
+
+test('사전 코드로 이루어진 날도 휴무와 근무를 바르게 센다', () => {
+  const entries = sampleEntries().filter((e) => !(e.date === '2026-09-07' || e.date === '2026-09-09'));
+  entries.push({ date: '2026-09-07', code: 'GDO', type: 'duty', category: 'off' });
+  entries.push({ date: '2026-09-09', code: 'HSBY', type: 'duty', category: 'standby' });
+  const m = plan.buildMonth(2026, 9, entries, { timeOf });
+  assert.strictEqual(plan.dayType(day(m, 7)), 'off');
+  assert.deepStrictEqual([day(m, 9).kind, plan.dayType(day(m, 9))], ['standby', 'work']);
+});

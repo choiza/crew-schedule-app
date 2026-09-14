@@ -5,12 +5,12 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('../airports.js'));
+    module.exports = factory(require('../airports.js'), require('../codes.js'));
   } else {
     root.CrewCal = root.CrewCal || {};
-    root.CrewCal.plan = factory(root.CrewCal.airports);
+    root.CrewCal.plan = factory(root.CrewCal.airports, root.CrewCal.codes);
   }
-})(typeof self !== 'undefined' ? self : this, function (airports) {
+})(typeof self !== 'undefined' ? self : this, function (airports, codes) {
   'use strict';
 
   var WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -41,12 +41,32 @@
     GRD: { short: '지상', long: '지상 근무', category: 'work' }
   };
 
+  // 근무 코드 사전(codes.js)의 분류를 달력 종류로 옮긴다. 병가, 모성 휴가는 근무가 아니라 휴가로 센다.
+  var DICT_CATEGORY = { off: 'off', vacation: 'vacation', standby: 'standby', training: 'training', layover: 'layover', flight: 'work', other: 'work' };
+  var DICT_LEAVE = { SICK: true, SK: true, ML: true };
+
+  /** 근무 코드 사전에 있는 코드의 뜻. 달력 칸에 들어가게 짧은 말은 4글자까지. */
+  function dictWord(key) {
+    var hit = codes && codes.DUTY_CODES && codes.DUTY_CODES[key];
+    if (!hit) return null;
+    var category = DICT_LEAVE[key] ? 'vacation' : (DICT_CATEGORY[hit.category] || 'work');
+    var fallback = CATEGORY_WORDS[category] || { short: hit.label, long: hit.label };
+    var label = String(hit.label || '').split('/')[0];
+    var compact = label.replace(/\s+/g, '');
+    // 휴무와 휴가는 달력에서 늘 같은 말로 보이게 한다. 자세한 뜻은 long 에 남긴다.
+    var short = category === 'off' ? '휴무'
+      : category === 'vacation' && !DICT_LEAVE[key] ? '휴가'
+      : compact.length <= 4 ? compact : fallback.short;
+    return { short: short, long: hit.label || fallback.long, category: category };
+  }
+
   var CATEGORY_WORDS = {
     off: { short: '휴무', long: '휴일' },
     vacation: { short: '휴가', long: '휴가' },
     standby: { short: '대기', long: '대기 근무' },
     training: { short: '교육', long: '교육' },
-    work: { short: '근무', long: '근무' }
+    work: { short: '근무', long: '근무' },
+    layover: { short: '체류', long: '해외 체류' }
   };
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -79,13 +99,13 @@
   }
 
   /**
-   * 코드의 뜻. 사용자가 고친 것 → 기본 뜻 → 크루캘 분류 순.
+   * 코드의 뜻. 사용자가 고친 것 → 기본 뜻 → 근무 코드 사전 → 크루캘 분류 순.
    * 반환: { short, long, category, custom }
    */
   function wordFor(code, category, words) {
     var key = String(code || '').toUpperCase();
     var own = words && words[key];
-    var base = DEFAULT_WORDS[key] || CATEGORY_WORDS[category] || null;
+    var base = DEFAULT_WORDS[key] || dictWord(key) || CATEGORY_WORDS[category] || null;
     if (own) {
       return {
         short: own.short || (base && base.short) || key,
@@ -95,6 +115,8 @@
       };
     }
     if (DEFAULT_WORDS[key]) return Object.assign({ custom: false }, DEFAULT_WORDS[key]);
+    var dict = dictWord(key);
+    if (dict) return Object.assign({ custom: false }, dict);
     if (CATEGORY_WORDS[category]) return Object.assign({ custom: false, category: category }, CATEGORY_WORDS[category]);
     return { short: key, long: key + ' (뜻을 모르는 코드)', category: 'unknown', custom: false };
   }
@@ -389,6 +411,7 @@
   return {
     WEEKDAYS: WEEKDAYS,
     CATEGORIES: CATEGORIES,
+    knownCode: function (code) { var key = String(code || '').toUpperCase(); return !!(DEFAULT_WORDS[key] || dictWord(key)); },
     DEFAULT_WORDS: DEFAULT_WORDS,
     addDays: addDays,
     weekdayOf: weekdayOf,
