@@ -1261,7 +1261,14 @@
 
   function joinGroup(group) {
     var old = groupInfo();
-    if (old && old.salt === group.salt) group.people = sync.mergePeople(old.people, group.people);
+    if (old && old.salt === group.salt) {
+      group.people = sync.mergePeople(old.people, group.people);
+    } else if (old) {
+      // 다른 가족 링크: 옛 가족의 받기와 관리자 열쇠가 섞이지 않게 푼다. 받아 둔 스케줄은 이 폰에 남는다.
+      people.list.forEach(function (p) { delete p.follow; });
+      savePeople();
+      localStorage.removeItem(MANAGER_KEY);
+    }
     if (!saveGroup(group)) return toast('이 폰에 저장하지 못했습니다.');
     if (group.people.length) adoptMembers(group);
     if (window.history && history.replaceState && location.hash) history.replaceState(null, '', location.pathname + location.search);
@@ -1558,7 +1565,12 @@
         : '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-sync>Sync</button></div>' +
           '<p class="note">가족 스케줄을 지금 최신으로 받습니다. 평소에는 앱을 열 때와 30분마다 저절로 맞춰지니, 방금 올린 스케줄이 안 보일 때만 누르세요.</p>' +
           '<div class="btn-row"><button type="button" class="btn btn-grow" data-manager-on>관리자 켜기</button></div>' +
-          '<p class="note">스케줄을 올리거나 고치려면 관리자를 켜고 비밀번호를 넣습니다. 한 번 켜면 이 폰에서 계속 유지됩니다.</p>');
+          '<p class="note">스케줄을 올리거나 고치려면 관리자를 켜고 비밀번호를 넣습니다. 한 번 켜면 이 폰에서 계속 유지됩니다. 가족 링크 보내기와 QR도 관리자를 켜면 보입니다.</p>') +
+      '<details class="howto"><summary>다른 가족 링크로 바꾸기</summary>' +
+        '<p class="note">새로 받은 가족 링크나 QR로 바꿉니다. 지금 가족 명단과 관리자 설정은 이 폰에서 풀립니다.</p>' +
+        '<div class="btn-row"><button type="button" class="btn btn-grow" data-open-receive>받은 링크 넣기</button>' +
+        '<label class="btn btn-grow file-btn" for="qrPhoto">QR 사진으로 넣기<input id="qrPhoto" type="file" accept="image/*"></label></div>' +
+      '</details>';
   }
 
   /* ---------------- 함께 보기 ---------------- */
