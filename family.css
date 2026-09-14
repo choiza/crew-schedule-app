@@ -1449,3 +1449,19 @@ details.fold[open] > summary { margin-bottom: 12px; }
 .together-list small { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 
 .kind-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* 가족 공유 링크 */
+.share-link {
+  margin: 0 0 8px; padding: 10px 12px; border-radius: 10px;
+  background: var(--surface-2); color: var(--ink-2);
+  font: 500 12px/1.5 var(--f-mono); word-break: break-all;
+  max-height: 110px; overflow: auto;
+}
+.share-pin { margin: 0 0 8px; font: 600 30px/1 var(--f-mono); letter-spacing: 0.14em; color: var(--ink); }
+.share-pin-input {
+  width: 100%; margin-bottom: 10px; padding: 12px;
+  font: 600 24px/1 var(--f-mono); letter-spacing: 0.14em; text-align: center;
+  background: var(--surface); color: var(--ink);
+}
+.share-months { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.share-month { display: flex; align-items: center; gap: 6px; font-size: 14px; }

@@ -10,6 +10,7 @@
   var plan = C.plan, bus = C.bus, parser = C.parser, routes = C.routes;
   var ocr = C.ocr, routedata = C.routedata, airports = C.airports, flightstatus = C.flightstatus;
   var flighttime = C.flighttime;
+  var share = C.share;
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 사람 목록은 따로 두고, 스케줄과 설정은 사람마다 다른 자리에 저장한다.
@@ -1086,6 +1087,148 @@
       airportSelect(id + '-to', '도착 공항', entry.to, 'data-route-to="' + esc(entry.code) + '"') +
       (db.routeFix[entry.code] ? '<button type="button" class="reset" data-route-reset="' + esc(entry.code) + '">원래 노선으로</button>' : '') +
       '</div>';
+  }
+
+  /* ---------------- 공유 링크 ---------------- */
+
+  var incomingShare = null; // 받은 링크: { token, payload }
+
+  /** 링크가 가리킬 앱 주소. 공개 https 주소에서 만들면 그 주소, 앱이나 사내 주소면 설정의 공개 주소. */
+  function shareBaseUrl() {
+    if (!nativeApp() && location.protocol === 'https:') return location.origin + location.pathname;
+    return (config.SHARE && config.SHARE.baseUrl) || (location.origin + location.pathname);
+  }
+
+  function clearShareHash() {
+    if (share && share.tokenFrom(location.hash) && window.history && history.replaceState) {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  }
+
+  function shareMakerHtml(result) {
+    var head = '<header class="sheet-head"><p class="eyebrow">가족에게 공유</p>' +
+      '<h2 id="shareTitle" class="display">' + esc(NAME) + ' 스케줄 링크</h2>' +
+      '<p class="lede">이 폰에서 스케줄을 잠가 링크에 담습니다. 서버에는 올리지 않고, 링크를 받은 사람은 누르기만 하면 봅니다.</p></header>';
+    if (!db.entries.length) return head + '<p class="callout is-calm">공유할 넣은 스케줄이 없습니다. 캡처를 먼저 넣어 주세요.</p>';
+    if (!share || !share.available()) {
+      return head + '<p class="callout">이 주소(' + esc(location.host) + ')에서는 브라우저가 암호화를 막습니다. GitHub 주소(https)나 안드로이드 앱에서 만들어 주세요.</p>';
+    }
+    if (result) {
+      return head +
+        '<section class="block"><h3 class="block-title">링크</h3><p class="share-link">' + esc(result.link) + '</p>' +
+          '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-share-send>링크 보내기</button>' +
+          '<button type="button" class="btn btn-grow" data-share-copy="link">링크 복사</button></div>' +
+          '<p class="note">링크를 가진 사람은 누구나 볼 수 있으니 가족에게만 보내 주세요. 스케줄을 새로 넣거나 고치면 새 링크를 다시 보내야 합니다.</p></section>';
+    }
+    var boxes = monthsWithData().map(function (m) {
+      return '<label class="share-month"><input type="checkbox" data-share-month value="' + m + '" checked>' +
+        (+m.slice(0, 4)) + '년 ' + (+m.slice(5, 7)) + '월</label>';
+    }).join('');
+    return head +
+      '<section class="block"><h3 class="block-title">보낼 달</h3><div class="share-months">' + boxes + '</div></section>' +
+      '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="makeShare">링크 만들기</button></div>';
+  }
+
+  function receiveHtml(payload, error) {
+    var head = '<header class="sheet-head"><p class="eyebrow">공유받은 스케줄</p>';
+    if (!payload) {
+      if (!share || !share.available()) {
+        return head + '<h2 id="shareTitle" class="display">여기서는 열 수 없어요</h2>' +
+          '<p class="lede">이 주소에서는 브라우저가 암호 풀기를 막습니다. GitHub 주소(https)나 안드로이드 앱에서 링크를 열어 주세요.</p></header>';
+      }
+      return head + '<h2 id="shareTitle" class="display">비밀번호를 넣어 주세요</h2>' +
+        '<p class="lede">보낸 사람에게 따로 받은 숫자입니다.</p></header>' +
+        (error ? '<p class="callout">' + esc(error) + '</p>' : '') +
+        '<section class="block"><label class="visually-hidden" for="receivePin">비밀번호</label>' +
+          '<input id="receivePin" class="share-pin-input" type="text" inputmode="numeric" maxlength="8" autocomplete="off">' +
+          '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="openShare">열기</button>' +
+          '<button type="button" class="btn btn-grow" data-share-dismiss>그만두기</button></div></section>';
+    }
+    var months = {};
+    payload.entries.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
+    var monthText = Object.keys(months).sort().map(function (m) { return (+m.slice(5, 7)) + '월'; }).join(', ');
+    var name = shareName(payload);
+    var existing = people.list.filter(function (p) { return p.name === name; })[0];
+    return head + '<h2 id="shareTitle" class="display">' + esc(name) + ' 스케줄</h2>' +
+      '<p class="lede">' + esc(monthText) + ', ' + payload.entries.length + '건. 이 폰에만 저장됩니다.</p></header>' +
+      '<div class="btn-row">' +
+        (existing
+          ? '<button type="button" class="btn btn-primary btn-grow" data-share-apply="' + esc(existing.id) + '">' + esc(name) + '에 넣기</button>'
+          : '<button type="button" class="btn btn-primary btn-grow" data-share-apply="new">' + esc(name) + ' 추가해서 넣기</button>') +
+        '<button type="button" class="btn btn-grow" data-share-dismiss>그만두기</button></div>' +
+      '<p class="note">같은 달이 이미 있으면 받은 스케줄로 바꿉니다.</p>';
+  }
+
+  function shareName(payload) {
+    return String(payload.name || '공유받은 사람').trim().slice(0, 20) || '공유받은 사람';
+  }
+
+  /** 받은 스케줄이 이 앱의 모양인지 본다. 날짜와 코드가 이상한 줄은 버린다. */
+  function cleanShared(payload) {
+    if (!payload || payload.app !== 'crew-family-share' || !Array.isArray(payload.entries)) {
+      throw new Error('이 앱의 스케줄 링크가 아닙니다.');
+    }
+    payload.entries = payload.entries.filter(function (entry) {
+      return entry && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) && /^[A-Z0-9]{1,8}$/.test(String(entry.code || ''));
+    }).slice(0, 2000);
+    if (!payload.entries.length) throw new Error('링크에 스케줄이 없습니다.');
+    return payload;
+  }
+
+  /** 받은 링크 열기. 링크 안에 열쇠가 있으면 바로 풀고, 옛 링크처럼 없으면 비밀번호를 묻는다. */
+  function openReceive(token, key) {
+    incomingShare = { token: token, payload: null };
+    if (!$('shareSheet').open) $('shareSheet').showModal();
+    if (!key || !share.available()) {
+      $('shareBody').innerHTML = receiveHtml(null);
+      return;
+    }
+    $('shareBody').innerHTML = '<header class="sheet-head"><p class="eyebrow">공유받은 스케줄</p><h2 id="shareTitle" class="display">스케줄을 여는 중</h2></header>';
+    share.unpack(token, key).then(function (payload) {
+      incomingShare.payload = cleanShared(payload);
+      $('shareBody').innerHTML = receiveHtml(incomingShare.payload);
+    }).catch(function (err) {
+      $('shareBody').innerHTML = '<header class="sheet-head"><p class="eyebrow">공유받은 스케줄</p><h2 id="shareTitle" class="display">열 수 없어요</h2>' +
+        '<p class="lede">' + esc(err.message) + ' 보낸 사람에게 링크를 다시 받아 주세요.</p></header>' +
+        '<div class="btn-row"><button type="button" class="btn btn-grow" data-share-dismiss>닫기</button></div>';
+    });
+  }
+
+  function applyShare(targetId) {
+    var payload = incomingShare.payload;
+    var name = shareName(payload);
+    var id = targetId;
+    if (id === 'new') {
+      id = 'u' + Date.now().toString(36);
+      people.list.push({ id: id, name: name });
+      savePeople();
+    }
+    var mine = id === people.current;
+    var target = mine ? db : {};
+    if (!mine) {
+      try { target = JSON.parse(localStorage.getItem(keyFor(id)) || '{}') || {}; } catch (e) { target = {}; }
+    }
+    var months = {};
+    payload.entries.forEach(function (entry) { months[entry.date.slice(0, 7)] = true; });
+    target.entries = (target.entries || []).filter(function (entry) { return !months[entry.date.slice(0, 7)]; }).concat(payload.entries);
+    target.words = Object.assign({}, target.words || {}, payload.words || {});
+    target.routeFix = Object.assign({}, target.routeFix || {}, payload.routeFix || {});
+    target.overrides = Object.assign({}, target.overrides || {}, payload.overrides || {});
+    if (mine) {
+      save();
+    } else {
+      try { localStorage.setItem(keyFor(id), JSON.stringify(target)); } catch (e) { return toast('이 폰에 저장하지 못했습니다.'); }
+    }
+    clearShareHash();
+    incomingShare = null;
+    $('shareSheet').close();
+    var first = Object.keys(months).sort()[0];
+    if (!mine) return switchPerson(id, name + ' 스케줄을 넣었습니다.');
+    state.year = +first.slice(0, 4);
+    state.month = +first.slice(5, 7);
+    render();
+    go('calendar');
+    toast(name + ' 스케줄을 넣었습니다.');
   }
 
   /* ---------------- 함께 보기 ---------------- */
@@ -2590,6 +2733,65 @@
     if (target.id === 'applyPreview') return applyPending();
     if (target.id === 'pasteGo') return readPaste();
     if (target.id === 'exportMonth') return exportMonth();
+    if (target.hasAttribute('data-open-share')) {
+      state.shareResult = null;
+      $('shareBody').innerHTML = shareMakerHtml();
+      return $('shareSheet').showModal();
+    }
+    if (target.hasAttribute('data-open-receive')) {
+      var pasted = window.prompt('가족에게 받은 스케줄 링크를 붙여 넣어 주세요.');
+      if (!pasted) return;
+      var pastedToken = share && share.tokenFrom(pasted);
+      if (!pastedToken) return toast('스케줄 링크가 아닙니다. 링크 전체를 붙여 넣어 주세요.');
+      return openReceive(pastedToken, share.keyFrom(pasted));
+    }
+    if (target.id === 'makeShare') {
+      var shareKey = share.randomKey();
+      var chosen = [].slice.call(document.querySelectorAll('[data-share-month]:checked')).map(function (box) { return box.value; });
+      if (!chosen.length) return toast('보낼 달을 하나 이상 골라 주세요.');
+      var inMonths = function (key) { return chosen.indexOf(key.slice(0, 7)) >= 0; };
+      var sharedOverrides = {};
+      Object.keys(db.overrides).forEach(function (key) { if (inMonths(key)) sharedOverrides[key] = db.overrides[key]; });
+      target.disabled = true;
+      target.textContent = '잠그는 중';
+      share.pack({
+        app: 'crew-family-share', v: 1, name: NAME,
+        entries: db.entries.filter(function (entry) { return inMonths(entry.date); }),
+        words: db.words, routeFix: db.routeFix, overrides: sharedOverrides
+      }, shareKey).then(function (token) {
+        state.shareResult = { link: share.linkFor(shareBaseUrl(), token, shareKey) };
+        $('shareBody').innerHTML = shareMakerHtml(state.shareResult);
+      }, function (err) {
+        target.disabled = false;
+        target.textContent = '링크 만들기';
+        toast(err.message);
+      });
+      return;
+    }
+    if (target.hasAttribute('data-share-send') && state.shareResult) {
+      return shareText(NAME + ' 스케줄 링크입니다. 누르면 달력이 열려요.\n' + state.shareResult.link);
+    }
+    if (data.shareCopy && state.shareResult) {
+      return copyText(state.shareResult.link, '링크를 복사했습니다.');
+    }
+    if (target.id === 'openShare' && incomingShare) {
+      var receivePin = ($('receivePin').value || '').trim();
+      target.disabled = true;
+      target.textContent = '여는 중';
+      share.unpack(incomingShare.token, receivePin).then(function (payload) {
+        incomingShare.payload = cleanShared(payload);
+        $('shareBody').innerHTML = receiveHtml(incomingShare.payload);
+      }).catch(function (err) {
+        $('shareBody').innerHTML = receiveHtml(null, err.message);
+      });
+      return;
+    }
+    if (data.shareApply && incomingShare && incomingShare.payload) return applyShare(data.shareApply);
+    if (target.hasAttribute('data-share-dismiss')) {
+      clearShareHash();
+      incomingShare = null;
+      return $('shareSheet').close();
+    }
     if (data.togetherShift) {
       state.month += +data.togetherShift;
       if (state.month < 1) { state.month = 12; state.year -= 1; }
@@ -3009,6 +3211,9 @@
   renderTitle();
   go('calendar');
   renderAds();
+
+  // 공유 링크로 열었으면 스케줄을 풀어 넣을지 묻는다
+  if (share && share.tokenFrom(location.hash)) openReceive(share.tokenFrom(location.hash), share.keyFrom(location.hash));
 
   // 해외 체류 중이면 현지 시각이 흐른다
   setInterval(renderTicket, 60 * 1000);

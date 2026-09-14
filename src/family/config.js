@@ -38,6 +38,14 @@
       proxyUrl: '',
       serviceKey: '',
       refreshMinutes: 30
+    },
+
+    /* 가족 공유 링크.
+     * 스케줄은 폰에서 비밀번호로 잠가 링크의 # 뒤에 담기 때문에 이 주소의 서버로 가지 않는다.
+     * 안드로이드 앱이나 사내 주소에서 만든 링크도 가족 폰에서 열리도록, 링크는 이 공개 주소를 쓴다.
+     */
+    SHARE: {
+      baseUrl: 'https://choiza.github.io/crew-schedule-app/family.html'
     }
   };
 })(typeof self !== 'undefined' ? self : this);

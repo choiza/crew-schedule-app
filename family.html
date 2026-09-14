@@ -126,6 +126,11 @@
         <p class="person-now"><span id="personNow">민주</span><small>설정은 사람마다 따로 저장됩니다</small></p>
         <button type="button" class="btn btn-small" data-open-people>사람 바꾸기, 추가</button>
       </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-grow" data-open-share>가족에게 공유 링크 만들기</button>
+        <button type="button" class="btn btn-grow" data-open-receive>받은 링크 넣기</button>
+      </div>
+      <p class="note">스케줄은 서버에 올리지 않고 링크 안에 담습니다. 링크를 받은 사람은 누르기만 하면 봅니다. 스케줄이 바뀌면 새 링크를 보내 주세요.</p>
     </details>
 
 
@@ -294,6 +299,16 @@
   </div>
 </dialog>
 
+<dialog id="shareSheet" class="sheet" aria-labelledby="shareTitle">
+  <div class="sheet-inner">
+    <div class="grabber" aria-hidden="true"></div>
+    <button type="button" class="icon-btn sheet-close" data-close aria-label="닫기">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div id="shareBody" class="sheet-body"></div>
+  </div>
+</dialog>
+
 <dialog id="peopleSheet" class="sheet" aria-labelledby="peopleTitle">
   <div class="sheet-inner">
     <div class="grabber" aria-hidden="true"></div>
@@ -336,6 +351,7 @@
 <script src="src/family/bus.js"></script>
 <script src="src/family/travel-data.js"></script>
 <script src="src/family/plan.js"></script>
+<script src="src/family/share.js"></script>
 <script src="src/family/main.js"></script>
 </body>
 </html>
