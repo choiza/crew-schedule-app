@@ -1116,7 +1116,7 @@
     { label: '지상 근무', code: 'GRD', category: 'work' }
   ];
 
-  /** 그날 일정 코드와 공항을 고치고 지우고 더하기. 버튼을 눌러야 펼쳐진다. 코드 뜻은 설정 맨 아래 한 곳에서만 고친다. */
+  /** 그날 일정 코드와 공항을 고치고 지우고 더하기. 버튼을 눌러야 펼쳐진다. 코드 뜻은 설정의 코드 뜻 칸 한 곳에서만 고친다. */
   function editBlock(iso) {
     var open = state.editOpen === iso;
     var chip = db.edited[iso] ? '<span class="route-chip">고친 날</span>' : '';
@@ -1160,7 +1160,7 @@
           '<p class="note">공항을 바꾸면 같은 편명이 들어간 모든 날짜에 바로 반영됩니다. 밤을 넘기는 귀국편은 출발일과 도착일에 같은 편명을 적어 주세요.</p>'
         : '<details class="edit-advanced"><summary>일정 하나씩 고치기</summary>' +
           (items ? '<ul class="edit-list">' + items + '</ul>' : '<p class="note">적힌 코드가 없습니다.</p>') +
-          '<p class="note">코드 뜻은 <button type="button" class="link-btn" data-go-codes>설정 맨 아래</button>에서 고칩니다.</p></details>') +
+          '<p class="note">휴무인지 근무인지가 틀리면 <button type="button" class="link-btn" data-go-codes>코드 뜻 고치기</button>에서 바꿉니다.</p></details>') +
       '</section>';
   }
 
@@ -1497,7 +1497,7 @@
         '<button type="button" class="btn btn-grow" data-export="text">' + ICON.copy + '글로 복사</button>' +
         '<button type="button" class="btn btn-grow" data-export="csv">' + ICON.sheet + '엑셀(CSV)</button>' +
       '</div>' +
-      '<p class="note">종류가 휴무인 코드만 휴무로 셉니다. 틀리게 나오면 <button type="button" class="link-btn" data-go-codes>설정 맨 아래 코드 뜻</button>을 확인해 주세요.</p>';
+      '<p class="note">실제와 다른 날이 있으면 <button type="button" class="link-btn" data-go-codes>코드 뜻 고치기</button>에서 그 코드를 휴무나 근무로 바꿔 주세요.</p>';
   }
 
   function openExport() {
@@ -2402,7 +2402,7 @@
     window.scrollTo(0, 0);
   }
 
-  /** 테스트 모드 띠(달력 위)와 설정 맨 아래 칸 */
+  /** 테스트 모드 띠(달력 위)와 설정의 테스트 모드 칸 */
   function renderAdmin() {
     var banner = $('adminBanner');
     if (!banner) {
