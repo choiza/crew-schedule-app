@@ -1479,3 +1479,8 @@ details.fold[open] > summary { margin-bottom: 12px; }
 .howto ol { margin: 0; padding-left: 20px; font-size: 13.5px; color: var(--ink-2); }
 .howto li + li { margin-top: 3px; }
 .howto .note { margin: 10px 0 0; }
+
+.link-row { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.link-label { margin: 0; font-size: 13px; font-weight: 700; color: var(--ink); }
+.link-row .share-link { background: var(--surface); max-height: 64px; }
+.link-row .note { margin: 0; }

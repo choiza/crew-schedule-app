@@ -1393,6 +1393,24 @@
     return payload;
   }
 
+  /** 링크 한 줄: 링크 글자와 보내기, 복사 버튼 */
+  function linkRow(label, url, kind, note) {
+    return '<div class="link-row"><p class="link-label">' + esc(label) + '</p>' +
+      '<p class="share-link">' + esc(url) + '</p>' +
+      '<div class="btn-row"><button type="button" class="btn btn-grow' + (kind === 'view' ? ' btn-primary' : '') + '" data-family-send="' + kind + '">보내기</button>' +
+        '<button type="button" class="btn btn-grow" data-family-copy="' + kind + '">복사</button></div>' +
+      (note ? '<p class="note">' + note + '</p>' : '') + '</div>';
+  }
+
+  /** 지금 사람의 가족 링크. view: 가족에게, upload: 본인이나 다른 올리는 폰에 */
+  function familyUrl(kind) {
+    var me = currentPerson();
+    if (me && me.follow) return sync.linkFor(shareBaseUrl(), me.follow.id, me.follow.key, NAME);
+    var link = db.familyLink;
+    if (!link) return null;
+    return sync.linkFor(shareBaseUrl(), link.id, link.key, NAME, kind === 'upload' ? link.token : null);
+  }
+
   function renderFamilyBox() {
     var box = $('familyLinkBox');
     if (!box) return;
@@ -1409,6 +1427,7 @@
     if (me && me.follow) {
       box.innerHTML = html +
         '<p class="note">' + esc(NAME) + ' 스케줄을 가족 링크로 받고 있습니다. 앱을 열 때와 30분마다 최신으로 바뀝니다. 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) + '</p>' +
+        linkRow('보기 링크 (가족에게)', familyUrl('view'), 'view', '다른 가족에게 이 링크를 보내면 같이 봅니다.') +
         (me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
         '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-pull>지금 새로 받기</button>' +
         '<button type="button" class="btn btn-grow btn-quiet" data-family-unfollow>받기 그만두기</button></div>';
@@ -1423,12 +1442,10 @@
           (db.entries.length ? '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-make>가족 링크 만들기</button></div>' : ''));
       return;
     }
-    var url = sync.linkFor(shareBaseUrl(), link.id, link.key);
     box.innerHTML = html +
-      '<p class="share-link">' + esc(url) + '</p>' +
-      '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" data-family-send>링크 보내기</button>' +
-        '<button type="button" class="btn btn-grow" data-family-copy>링크 복사</button></div>' +
-      '<p class="note">스케줄을 넣거나 고치면 자동으로 올라갑니다. 마지막으로 올린 때: ' + esc(clockText(link.sentAt)) + '. 링크를 가진 사람은 누구나 보니 가족에게만 보내 주세요.</p>' +
+      '<p class="note">이 폰은 ' + esc(NAME) + ' 스케줄을 올리는 폰입니다. 스케줄을 넣거나 고치면 자동으로 올라가고, 누가 올리든 마지막에 올린 스케줄로 모두 맞춰집니다. 마지막으로 올린 때: ' + esc(clockText(link.sentAt)) + '</p>' +
+      linkRow('보기 링크 (가족에게)', familyUrl('view'), 'view', '받은 가족은 볼 수만 있습니다.') +
+      linkRow('올리기 링크 (' + NAME + ' 본인이나 같이 올릴 폰에만)', familyUrl('upload'), 'upload', '이 링크를 가진 사람은 스케줄을 바꿀 수 있습니다.') +
       (link.error ? '<p class="callout">' + esc(link.error) + '</p>' : '') +
       '<div class="btn-row"><button type="button" class="btn btn-grow" data-family-push>지금 올리기</button>' +
         '<button type="button" class="btn btn-grow btn-quiet" data-family-stop>가족 링크 끄기</button></div>';
@@ -1466,6 +1483,16 @@
         esc(name) + (existing ? '로 받기 시작' : ' 추가해서 받기 시작') + '</button>' +
         '<button type="button" class="btn btn-grow" data-family-dismiss>그만두기</button></div>' +
       '<p class="note">받는 사람의 스케줄은 보낸 사람 것으로 계속 바뀝니다. 이 폰에서 고친 내용은 다음에 받을 때 덮어써집니다.</p>';
+  }
+
+  /** 복사해 온 링크 글자를 연다: 가족 링크(#f=) 또는 한 번 보내는 링크(#s=) */
+  function openLinkText(text) {
+    var hashAt = text.indexOf('#');
+    var family = sync && hashAt >= 0 && sync.fromHash(text.slice(hashAt));
+    if (family) return openFamilyReceive(family);
+    var token = share && share.tokenFrom(text);
+    if (!token) return toast('스케줄 링크가 아닙니다. 링크 전체를 복사해 주세요.');
+    return openReceive(token, share.keyFrom(text));
   }
 
   function openFamilyReceive(found) {
@@ -3056,13 +3083,18 @@
       return $('shareSheet').showModal();
     }
     if (target.hasAttribute('data-open-receive')) {
-      var pasted = window.prompt('가족에게 받은 스케줄 링크를 붙여 넣어 주세요.');
-      if (!pasted) return;
-      var pastedFamily = sync && sync.fromHash(pasted.slice(pasted.indexOf('#')));
-      if (pastedFamily) return openFamilyReceive(pastedFamily);
-      var pastedToken = share && share.tokenFrom(pasted);
-      if (!pastedToken) return toast('스케줄 링크가 아닙니다. 링크 전체를 붙여 넣어 주세요.');
-      return openReceive(pastedToken, share.keyFrom(pasted));
+      var askPaste = function () {
+        var typed = window.prompt('가족에게 받은 스케줄 링크를 붙여 넣어 주세요.');
+        if (typed) openLinkText(typed);
+      };
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(function (text) {
+          if (text && /#(f|s)=/.test(text)) return openLinkText(text.trim());
+          askPaste();
+        }, askPaste);
+        return;
+      }
+      return askPaste();
     }
     if (target.id === 'makeShare') {
       var shareKey = share.randomKey();
@@ -3119,11 +3151,17 @@
       renderFamilyBox();
       return uploadFamily(true);
     }
-    if (target.hasAttribute('data-family-send') && db.familyLink) {
-      return shareText(NAME + ' 스케줄 가족 링크입니다. 한 번 넣어 두면 늘 최신으로 보여요.\n' + sync.linkFor(shareBaseUrl(), db.familyLink.id, db.familyLink.key));
+    if (data.familySend) {
+      var sendUrl = familyUrl(data.familySend);
+      if (!sendUrl) return toast('보낼 링크가 없습니다.');
+      return shareText(data.familySend === 'upload'
+        ? NAME + ' 스케줄 올리기 링크입니다. 앱의 설정, 스케줄 보는 사람, 받은 링크 넣기에 넣으면 이 폰에서 스케줄을 올릴 수 있어요.\n' + sendUrl
+        : NAME + ' 스케줄 보기 링크입니다. 앱의 설정, 스케줄 보는 사람, 받은 링크 넣기에 넣으면 늘 최신으로 보여요.\n' + sendUrl);
     }
-    if (target.hasAttribute('data-family-copy') && db.familyLink) {
-      return copyText(sync.linkFor(shareBaseUrl(), db.familyLink.id, db.familyLink.key), '가족 링크를 복사했습니다.');
+    if (data.familyCopy) {
+      var copyUrl = familyUrl(data.familyCopy);
+      if (!copyUrl) return toast('복사할 링크가 없습니다.');
+      return copyText(copyUrl, data.familyCopy === 'upload' ? '올리기 링크를 복사했습니다.' : '보기 링크를 복사했습니다.');
     }
     if (target.hasAttribute('data-family-push')) return uploadFamily(true);
     if (target.hasAttribute('data-family-stop') && db.familyLink) {
