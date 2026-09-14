@@ -79,17 +79,26 @@ test('인터넷이 끊기면 알아듣는 말로', async () => {
   await assert.rejects(api.get('a'.repeat(24)), /인터넷에 연결되지 않아/);
 });
 
-test('가족 링크 하나에 여러 사람이 담기고, 쓰기 열쇠는 링크에 없다', async () => {
+test('가족 링크에는 이름도 사람 열쇠도 쓰기 열쇠도 없다', async () => {
   const group = await sync.newGroup(['민주', '신주'], '2004');
   const url = sync.groupLinkFor('https://choiza.github.io/crew-schedule-app/family.html', group);
+  const inside = Buffer.from(url.split('#g=')[1], 'base64url').toString('utf8');
+  assert.deepStrictEqual(Object.keys(JSON.parse(inside)).sort(), ['c', 's', 'v']);
+  assert.ok(!inside.includes('민주') && !inside.includes('신주'));
+  group.people.forEach((p) => assert.ok(!url.includes(p.id) && !url.includes(p.key)));
   const back = sync.fromGroupHash(url.slice(url.indexOf('#')));
-  assert.deepStrictEqual(back, group);
-  for (const p of group.people) {
-    const token = await sync.writeToken(p.id, '2004');
-    assert.ok(token.length >= 32);
-    assert.ok(!url.includes(token));
-  }
+  assert.deepStrictEqual(back, { salt: group.salt, check: group.check, people: [] });
+  // 명단 칸은 링크만으로 같은 곳을 가리킨다
+  assert.deepStrictEqual(await sync.dirFor(back), await sync.dirFor(group));
   assert.strictEqual(sync.fromGroupHash('#g=bad'), null);
+});
+
+test('예전 링크(v1, 명단 들어 있음)도 읽는다', () => {
+  const old = { v: 1, s: 'abcdefgh12345678', c: 'wDuRFC0XA-tB1PfO-oFzXt', p: [{ n: '가', i: 'Ib3dlJNgvUkYnwBOcifp6Hsu', k: 'bZdJF0TIm0jFX426679KlLria66ei3Uq1Pr24GR6Sco' }] };
+  const url = '#g=' + Buffer.from(JSON.stringify(old)).toString('base64url');
+  const got = sync.fromGroupHash(url);
+  assert.strictEqual(got.people.length, 1);
+  assert.strictEqual(got.salt, old.s);
 });
 
 test('관리자 비밀번호가 맞을 때만 같은 확인값과 같은 쓰기 열쇠', async () => {
@@ -129,22 +138,22 @@ test('가족 명단 칸은 링크에서만 나오고, 사람을 더하면 합쳐
 });
 
 test('복사하다 줄바꿈, 공백, 앞뒤 글자가 붙어도 가족 링크를 알아본다', async () => {
-  const group = await sync.newGroup(['민주', '신주'], '2004');
+  const group = await sync.newGroup([], '2004');
   const link = sync.groupLinkFor('https://choiza.github.io/crew-schedule-app/family.html', group);
   const variants = [
     link,
     link + '\n',
     link + ' ',
     '\n ' + link + ' \n',
-    link.slice(0, 200) + '\n' + link.slice(200),
-    link.slice(0, 150) + ' ' + link.slice(150, 300) + '\r\n' + link.slice(300),
+    link.slice(0, 40) + '\n' + link.slice(40),
+    link.slice(0, 30) + ' ' + link.slice(30, 70) + '\r\n' + link.slice(70),
     link + ' 이거 넣어',
     '가족 링크: ' + link
   ];
   for (const text of variants) {
     const got = sync.fromGroupHash(text);
     assert.ok(got, '못 읽음: ' + JSON.stringify(text.slice(-30)));
-    assert.deepStrictEqual(got.people.map((p) => p.name), ['민주', '신주']);
+    assert.strictEqual(got.salt, group.salt);
     assert.strictEqual(got.check, group.check);
   }
   assert.strictEqual(sync.fromGroupHash('https://example.com/family.html'), null);

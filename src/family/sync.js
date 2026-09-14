@@ -135,12 +135,12 @@
   }
 
   /** 가족 링크 하나: group = { salt, check, people: [{ name, id, key }] } */
+  /** 가족 링크: 이름과 사람 열쇠는 넣지 않는다. 명단은 서버의 잠긴 명단 칸에서 받는다. */
   function groupLinkFor(baseUrl, group) {
-    var body = JSON.stringify({ v: 1, s: group.salt, c: group.check, p: group.people.map(function (p) { return { n: p.name, i: p.id, k: p.key }; }) });
+    var body = JSON.stringify({ v: 2, s: group.salt, c: group.check });
     return String(baseUrl).split('#')[0] + '#g=' + toBase64Url(new TextEncoder().encode(body));
   }
 
-  /** 주소의 # 에서 가족 링크. 모양이 틀리면 null. */
   function fromGroupHash(hash) {
     // 카톡, 메모에서 복사하면 긴 링크 앞뒤와 중간에 줄바꿈이나 공백, 뒤에 다른 글자가 붙는다
     var text = String(hash || '').replace(/\s+/g, '');
@@ -148,11 +148,13 @@
     if (!match) return null;
     try {
       var data = JSON.parse(new TextDecoder().decode(fromBase64Url(match[1])));
-      if (!data || data.v !== 1 || !Array.isArray(data.p) || !data.p.length || !data.s || !data.c) return null;
-      var people = data.p.filter(function (p) {
+      if (!data || (data.v !== 1 && data.v !== 2) || typeof data.s !== 'string' || typeof data.c !== 'string') return null;
+      if (!/^[A-Za-z0-9_-]{8,64}$/.test(data.s) || !/^[A-Za-z0-9_-]{16,64}$/.test(data.c)) return null;
+      // 예전 링크(v1)에 들어 있던 명단도 읽는다
+      var people = (Array.isArray(data.p) ? data.p : []).filter(function (p) {
         return p && /^[A-Za-z0-9_-]{20,64}$/.test(p.i) && /^[A-Za-z0-9_-]{40,60}$/.test(p.k) && String(p.n || '').trim();
       }).map(function (p) { return { name: String(p.n).trim().slice(0, 20), id: p.i, key: p.k }; });
-      return people.length ? { salt: String(data.s), check: String(data.c), people: people.slice(0, 20) } : null;
+      return { salt: data.s, check: data.c, people: people.slice(0, 20) };
     } catch (e) {
       return null;
     }

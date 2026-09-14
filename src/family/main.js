@@ -1240,8 +1240,9 @@
           if ($('peopleSheet').open) renderPeople();
         }
         var serverCount = (theirs || []).length;
-        if (!isManager() || serverCount >= merged.length) return null;
+        if (!isManager()) return null;
         return ensureTokens().then(function (m) {
+          if (serverCount >= merged.length) return null;
           var token = m && m.tokens[dir.id];
           if (!token) return null;
           return sync.seal({ app: 'crew-family-dir', v: 1, people: merged }, dir.key)
@@ -1262,25 +1263,17 @@
     var old = groupInfo();
     if (old && old.salt === group.salt) group.people = sync.mergePeople(old.people, group.people);
     if (!saveGroup(group)) return toast('이 폰에 저장하지 못했습니다.');
-    var firstId = null;
-    group.people.forEach(function (member, index) {
-      var person = people.list.filter(function (p) { return p.name === member.name; })[0];
-      if (!person) {
-        person = { id: 'u' + Date.now().toString(36) + index, name: member.name };
-        people.list.push(person);
-      }
-      var old = person.follow || {};
-      person.follow = { id: member.id, key: member.key, at: old.id === member.id ? old.at : null, error: '' };
-      if (!firstId) firstId = person.id;
-    });
-    savePeople();
+    if (group.people.length) adoptMembers(group);
     if (window.history && history.replaceState && location.hash) history.replaceState(null, '', location.pathname + location.search);
-    if ($('shareSheet').open) $('shareSheet').close();
-    toast('가족 링크를 넣었습니다: ' + group.people.map(function (p) { return p.name; }).join(', '));
+    if ($('shareSheet') && $('shareSheet').open) $('shareSheet').close();
+    toast('가족 링크를 넣었습니다. 가족 명단을 받는 중입니다.');
     return pullFamilies(false).then(function () {
       var me = currentPerson();
-      if (!(me && me.follow)) return switchPerson(firstId, group.people[0].name + ' 스케줄을 봅니다.');
+      if (me && me.follow) return render();
+      var first = people.list.filter(function (p) { return p.follow; })[0];
+      if (first) return switchPerson(first.id, '가족 링크를 넣었습니다. ' + first.name + ' 스케줄을 봅니다.');
       render();
+      toast('가족 링크를 넣었습니다. 관리자가 제목을 눌러 사람을 추가하면 여기에 들어옵니다.');
     });
   }
 
@@ -1452,7 +1445,9 @@
     var mine = me && me.follow;
     var manager = isManager();
     box.innerHTML =
-      '<p class="note">가족 링크로 ' + esc(group.people.map(function (p) { return p.name; }).join(', ')) + ' 스케줄을 봅니다. 앱을 열 때와 30분마다 최신으로 바뀝니다.' +
+      (group.people.length
+        ? '<p class="note">가족 링크로 ' + esc(group.people.map(function (p) { return p.name; }).join(', ')) + ' 스케줄을 봅니다. 앱을 열 때와 30분마다 최신으로 바뀝니다.'
+        : '<p class="note">가족 링크를 넣었습니다. 아직 명단이 없습니다. 관리자가 제목을 눌러 사람을 추가하면 들어옵니다.') +
         (mine ? ' ' + esc(NAME) + ' 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) : '') + '</p>' +
       (mine && me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
       (manager
