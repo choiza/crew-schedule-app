@@ -364,6 +364,14 @@
     return loading;
   }
 
+  /**
+   * 안드로이드 앱(Capacitor)은 빌드할 때 .gz 에셋의 압축을 풀고 이름에서 .gz 를 뗀다.
+   * 그래서 앱 안에서는 eng.traineddata 를, 웹에서는 eng.traineddata.gz 를 받는다.
+   */
+  function nativeApp() {
+    return typeof window !== 'undefined' && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  }
+
   function getWorker(onProgress) {
     if (worker) return Promise.resolve(worker);
     return load().then(function (Tesseract) {
@@ -371,7 +379,7 @@
         workerPath: BASE + 'worker.min.js',
         corePath: BASE,
         langPath: BASE,
-        gzip: true,
+        gzip: !nativeApp(),
         logger: function (m) {
           if (!onProgress) return;
           if (m.status === 'loading tesseract core' || m.status === 'loading language traineddata') {
