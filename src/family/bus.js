@@ -747,7 +747,8 @@
     return 'https://m.bustago.or.kr:444/mobus/btmho/BTMHORN0001.do' +
       '?sterCode=' + from.code + '&eterCode=' + to.code +
       '&sterName=' + encodeURIComponent(from.name) + '&eterName=' + encodeURIComponent(to.name) +
-      '&startDate=' + iso.replace(/-/g, '');
+      // 화면의 가는날은 sdate 로만 채워진다. startDate 만 주면 숨은 칸에만 들어가고 가는날은 오늘로 보인다.
+      '&startDate=' + iso.replace(/-/g, '') + '&sdate=' + iso.replace(/-/g, '');
   }
 
   /** 안드로이드 시계 앱을 그 시각이 채워진 채로 연다. 날짜는 못 넘기므로 전날 밤에 누른다. */
