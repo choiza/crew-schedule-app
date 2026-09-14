@@ -172,11 +172,12 @@
     ]).then(function (parts) { return { id: parts[0].slice(0, 24), key: parts[1] }; });
   }
 
-  /** 명단 두 개를 칸 번호로 합친다. 먼저 있던 순서를 지키고 새 사람은 뒤에 붙인다. */
-  function mergePeople(mine, theirs) {
-    var out = (mine || []).slice();
+  /** 명단 두 개를 칸 번호로 합친다. 먼저 있던 순서를 지키고 새 사람은 뒤에 붙인다. 지운 칸 번호(removed)는 어느 쪽에 있어도 뺀다. */
+  function mergePeople(mine, theirs, removed) {
+    var gone = removed || [];
+    var out = (mine || []).filter(function (p) { return p && gone.indexOf(p.id) < 0; });
     (theirs || []).forEach(function (p) {
-      if (!p || !p.id || !p.key || !p.name) return;
+      if (!p || !p.id || !p.key || !p.name || gone.indexOf(p.id) >= 0) return;
       if (!out.some(function (q) { return q.id === p.id; })) out.push({ name: String(p.name).trim().slice(0, 20), id: p.id, key: p.key });
     });
     return out.slice(0, 20);

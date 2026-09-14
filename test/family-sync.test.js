@@ -159,3 +159,11 @@ test('복사하다 줄바꿈, 공백, 앞뒤 글자가 붙어도 가족 링크�
   assert.strictEqual(sync.fromGroupHash('https://example.com/family.html'), null);
   assert.strictEqual(sync.fromGroupHash('#g=' + 'A'.repeat(40)), null);
 });
+
+test('관리자가 지운 사람은 다른 폰 명단에 있어도 합칠 때 빠진다', async () => {
+  const group = await sync.newGroup(['가', '나'], '2004');
+  const [a, b] = group.people;
+  assert.deepStrictEqual(sync.mergePeople([a, b], [a, b], [a.id]).map((p) => p.name), ['나']);
+  assert.deepStrictEqual(sync.mergePeople([b], [a, b], [a.id]).map((p) => p.name), ['나']);
+  assert.deepStrictEqual(sync.mergePeople([], [a, b], [a.id, b.id]), []);
+});

@@ -1178,6 +1178,43 @@
     return !(me && me.follow) || !!writeLinkFor(me);
   }
 
+  function unionIds(a, b) {
+    var out = (a || []).slice();
+    (b || []).forEach(function (id) { if (id && out.indexOf(id) < 0) out.push(id); });
+    return out;
+  }
+
+  /** 이 폰에 넣은 스케줄이 있는 사람인지 */
+  function hasSchedule(p) {
+    if (p.id === people.current && db) return !!(db.entries && db.entries.length);
+    var stored = {};
+    try { stored = JSON.parse(localStorage.getItem(keyFor(p.id)) || '{}') || {}; } catch (e) { stored = {}; }
+    return !!(stored.entries && stored.entries.length);
+  }
+
+  /** 사람을 이 폰 목록에서 뺀다. 보고 있던 사람이면 다른 사람으로, 아무도 없으면 빈 '나' 하나. */
+  function removePeople(personIds) {
+    if (!personIds.length) return false;
+    personIds.forEach(function (pid) {
+      try { localStorage.removeItem(keyFor(pid)); } catch (e) { /* 지우지 못해도 목록에서는 뺀다 */ }
+    });
+    people.list = people.list.filter(function (p) { return personIds.indexOf(p.id) < 0; });
+    if (!people.list.length) people.list = [{ id: 'u' + Date.now().toString(36), name: '나' }];
+    if (!people.list.some(function (p) { return p.id === people.current; })) {
+      var next = people.list.filter(function (p) { return p.follow; })[0] || people.list[0];
+      people.current = next.id;
+      NAME = next.name;
+      KEY = keyFor(next.id);
+      initDb();
+      pickMonth();
+    }
+    savePeople();
+    renderTitle();
+    render();
+    if ($('peopleSheet').open) renderPeople();
+    return true;
+  }
+
   function saveGroup(group) {
     try { localStorage.setItem(GROUP_KEY, JSON.stringify(group)); return true; } catch (e) { return false; }
   }
@@ -1185,7 +1222,9 @@
   /** 가족 명단의 사람을 이 폰 사람 목록에 넣는다. 새로 들어온 사람 이름을 돌려준다. */
   function adoptMembers(group) {
     var added = [];
+    var skip = unionIds(group.hidden, group.removed);
     group.people.forEach(function (member, index) {
+      if (skip.indexOf(member.id) >= 0) return;
       if (people.list.some(function (p) { return p.follow && p.follow.id === member.id; })) return;
       var person = people.list.filter(function (p) { return p.name === member.name && !p.follow; })[0];
       if (!person) {
@@ -1217,35 +1256,52 @@
   }
 
   /**
-   * 가족 명단: 모든 폰이 받아 새 사람을 넣고, 관리자 폰은 이 폰에만 있는 사람이 있으면 올린다.
-   * 지운 사람은 명단에서 빼지 않는다. 한 폰에서 지워도 다른 폰에는 그대로 있다.
+   * 가족 명단: 모든 폰이 받아 새 사람을 넣고 관리자가 지운 사람은 뺀다.
+   * 관리자 폰은 서버 명단과 다르면(이 폰에서 더하거나 지웠으면) 합친 명단을 올린다.
    */
   function syncDirectory() {
     var group = groupInfo();
     if (!group || !familyOn()) return Promise.resolve();
     return sync.dirFor(group).then(function (dir) {
       return familyApi().get(dir.id).then(function (row) {
-        return row ? sync.open(row.cipher, dir.key).then(function (d) { return d && d.people; }) : null;
+        return row ? sync.open(row.cipher, dir.key) : null;
       }).then(function (theirs) {
-        var merged = sync.mergePeople(group.people, theirs || []);
-        var grew = merged.length > group.people.length;
-        if (grew) {
-          group.people = merged;
-          saveGroup(group);
-        }
+        theirs = theirs || {};
+        var theirPeople = theirs.people || [];
+        var removed = unionIds(group.removed, theirs.removed);
+        var merged = sync.mergePeople(group.people, theirPeople, removed);
+        var changed = merged.length !== group.people.length || removed.length !== (group.removed || []).length;
+        group.people = merged;
+        group.removed = removed;
+        if (changed) saveGroup(group);
+        var goneIds = people.list.filter(function (p) { return p.follow && removed.indexOf(p.follow.id) >= 0; }).map(function (p) { return p.id; });
+        var gone = removePeople(goneIds);
         var added = adoptMembers(group);
         if (added.length) {
           toast('가족 링크에 새 사람이 들어왔습니다: ' + added.join(', '));
+          var me = currentPerson();
+          if (!(me && me.follow)) {
+            var firstMember = people.list.filter(function (p) { return p.follow; })[0];
+            if (firstMember) switchPerson(firstMember.id, '가족 링크에 새 사람이 들어왔습니다: ' + added.join(', '));
+          }
+          dropEmptyLocals();
+        }
+        if (added.length || gone) {
           render();
           if ($('peopleSheet').open) renderPeople();
         }
-        var serverCount = (theirs || []).length;
         if (!isManager()) return null;
+        var sameIds = function (a, b) {
+          var x = (a || []).map(function (p) { return p.id || p; }).sort().join(',');
+          var y = (b || []).map(function (p) { return p.id || p; }).sort().join(',');
+          return x === y;
+        };
+        var serverSame = sameIds(theirPeople, merged) && sameIds(theirs.removed, removed);
         return ensureTokens().then(function (m) {
-          if (serverCount >= merged.length) return null;
+          if (serverSame) return null;
           var token = m && m.tokens[dir.id];
           if (!token) return null;
-          return sync.seal({ app: 'crew-family-dir', v: 1, people: merged }, dir.key)
+          return sync.seal({ app: 'crew-family-dir', v: 1, people: merged, removed: removed }, dir.key)
             .then(function (cipher) { return familyApi().put(dir.id, cipher, token); });
         });
       });
@@ -1291,7 +1347,9 @@
   function joinGroup(group) {
     var old = groupInfo();
     if (old && old.salt === group.salt) {
-      group.people = sync.mergePeople(old.people, group.people);
+      group.removed = old.removed || [];
+      group.hidden = old.hidden || [];
+      group.people = sync.mergePeople(old.people, group.people, group.removed);
     } else if (old) {
       // 다른 가족 링크: 옛 가족의 받기와 관리자 열쇠가 섞이지 않게 푼다. 받아 둔 스케줄은 이 폰에 남는다.
       people.list.forEach(function (p) { delete p.follow; });
@@ -2908,7 +2966,7 @@
           '<span class="person-dot" aria-hidden="true"></span><span class="person-name">' + esc(person.name) + '<small>' + esc(where) + '</small></span>' +
           (on ? '<span class="route-chip">보는 중</span>' : '') + '</button>' +
         (viewer ? '' : '<button type="button" class="icon-btn" data-person-rename="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 이름 바꾸기">' + ICON.edit + '</button>') +
-        (shown.length > 1 ? '<button type="button" class="btn btn-small btn-quiet" data-person-delete="' + esc(person.id) + '">지우기</button>' : '') +
+        (shown.length > 1 || person.follow || hasSchedule(person) ? '<button type="button" class="btn btn-small btn-quiet" data-person-delete="' + esc(person.id) + '">지우기</button>' : '') +
         '</li>';
     }).join('');
     var emptyRoster = joined && !people.list.some(function (p) { return p.follow; });
@@ -2922,7 +2980,9 @@
     $('peopleBody').innerHTML =
       '<header class="sheet-head"><p class="eyebrow">누구 스케줄</p>' +
       '<h2 id="peopleTitle" class="display">스케줄 보는 사람</h2>' +
-      '<p class="lede">볼 사람을 누르면 그 사람 달력으로 바뀝니다. ' + (joined && manager ? '추가한 사람은 가족 모두의 폰에 들어갑니다. ' : '') + '지우기는 이 폰에서만 지우고 가족 폰에는 영향이 없습니다.</p></header>' +
+      '<p class="lede">볼 사람을 누르면 그 사람 달력으로 바뀝니다. ' + (joined && manager
+        ? '이 폰은 관리자라서 추가하거나 지우면 가족 모두의 폰에 반영됩니다.'
+        : joined ? '지우기는 이 폰에서만 숨기고 가족 폰에는 영향이 없습니다.' : '지우기는 이 폰에서만 지웁니다.') + '</p></header>' +
       '<ul class="people-list">' + list + '</ul>' +
       (viewer ? '' : '<div class="edit-add"><label class="visually-hidden" for="newPersonName">새 사람 이름</label>' +
         '<input id="newPersonName" type="text" maxlength="10" placeholder="새 사람 이름 (예: 지현)" autocomplete="off">' +
@@ -2966,6 +3026,7 @@
       people.list.push({ id: id, name: clean, follow: { id: link.id, key: link.key, at: null, error: '' } });
       savePeople();
       switchPerson(id, clean + '을(를) 가족 링크에 추가했습니다. 캡처를 넣으면 가족 모두에게 보입니다.');
+      dropEmptyLocals();
       return ensureTokens().then(syncDirectory).catch(function (err) { toast('가족 명단을 올리지 못했습니다: ' + err.message); });
     }
     people.list.push({ id: id, name: clean });
@@ -2986,23 +3047,37 @@
     render();
   }
 
+  /**
+   * 사람 지우기. 관리자 폰에서 가족 링크 사람을 지우면 가족 모두의 폰에서 빠지고 올린 스케줄도 지운다.
+   * 보는 폰은 이 폰에서만 숨긴다. 마지막 사람도 지울 수 있고, 모두 지우면 빈 '나' 하나가 남는다.
+   */
   function deletePerson(id) {
     var person = people.list.filter(function (p) { return p.id === id; })[0];
-    if (!person || people.list.length < 2) return;
-    if (!window.confirm(person.name + '을(를) 이 폰에서 지울까요? ' + (person.follow ? '가족 링크의 스케줄은 그대로 남고, 링크를 다시 넣으면 돌아옵니다.' : '넣은 스케줄과 설정이 모두 지워집니다.'))) return;
-    try { localStorage.removeItem(keyFor(id)); } catch (e) { /* 지우지 못해도 목록에서는 뺀다 */ }
-    people.list = people.list.filter(function (p) { return p.id !== id; });
-    savePeople();
-    if (id === people.current) {
-      people.current = people.list[0].id;
-      NAME = currentPerson().name;
-      KEY = keyFor(people.current);
-      initDb();
-      pickMonth();
-      renderTitle();
-      go('calendar');
+    if (!person) return;
+    var group = groupInfo();
+    if (person.follow && group) {
+      var followId = person.follow.id;
+      if (isManager()) {
+        if (!window.confirm(person.name + '을(를) 가족 모두의 폰에서 지울까요? 올린 스케줄도 함께 지워집니다.')) return;
+        var tokens = (managerInfo() || {}).tokens || {};
+        group.people = group.people.filter(function (m) { return m.id !== followId; });
+        group.removed = unionIds(group.removed, [followId]);
+        saveGroup(group);
+        removePeople([id]);
+        toast(person.name + '을(를) 가족 명단에서 지웠습니다.');
+        var dropRow = tokens[followId] && familyOn()
+          ? familyApi().remove(followId, tokens[followId]).catch(function () { /* 올린 스케줄이 없으면 그대로 */ })
+          : Promise.resolve();
+        return dropRow.then(syncDirectory).catch(function (err) { toast('가족 명단을 올리지 못했습니다: ' + err.message); });
+      }
+      if (!window.confirm(person.name + '을(를) 이 폰에서 숨길까요? 가족 링크의 스케줄은 그대로 남고, 관리자가 지우지 않는 한 다른 폰에는 보입니다.')) return;
+      group.hidden = unionIds(group.hidden, [followId]);
+      saveGroup(group);
+      removePeople([id]);
+      return toast(person.name + '을(를) 이 폰에서 숨겼습니다.');
     }
-    renderPeople();
+    if (!window.confirm(person.name + '을(를) 이 폰에서 지울까요? 넣은 스케줄과 설정이 모두 지워집니다.')) return;
+    removePeople([id]);
     toast(person.name + '을(를) 지웠습니다.');
   }
 
