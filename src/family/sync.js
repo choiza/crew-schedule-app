@@ -142,7 +142,9 @@
 
   /** 주소의 # 에서 가족 링크. 모양이 틀리면 null. */
   function fromGroupHash(hash) {
-    var match = /[#&]g=([A-Za-z0-9_-]{20,4000})(?:&|$)/.exec(String(hash || ''));
+    // 카톡, 메모에서 복사하면 긴 링크 앞뒤와 중간에 줄바꿈이나 공백, 뒤에 다른 글자가 붙는다
+    var text = String(hash || '').replace(/\s+/g, '');
+    var match = /[#&]g=([A-Za-z0-9_-]{20,4000})/.exec(text);
     if (!match) return null;
     try {
       var data = JSON.parse(new TextDecoder().decode(fromBase64Url(match[1])));

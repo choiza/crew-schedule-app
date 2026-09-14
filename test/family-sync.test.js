@@ -127,3 +127,26 @@ test('가족 명단 칸은 링크에서만 나오고, 사람을 더하면 합쳐
   assert.deepStrictEqual(merged.map((p) => p.name), ['민주', '신주', '지현']);
   assert.strictEqual(sync.mergePeople(merged, group.people).length, 3);
 });
+
+test('복사하다 줄바꿈, 공백, 앞뒤 글자가 붙어도 가족 링크를 알아본다', async () => {
+  const group = await sync.newGroup(['민주', '신주'], '2004');
+  const link = sync.groupLinkFor('https://choiza.github.io/crew-schedule-app/family.html', group);
+  const variants = [
+    link,
+    link + '\n',
+    link + ' ',
+    '\n ' + link + ' \n',
+    link.slice(0, 200) + '\n' + link.slice(200),
+    link.slice(0, 150) + ' ' + link.slice(150, 300) + '\r\n' + link.slice(300),
+    link + ' 이거 넣어',
+    '가족 링크: ' + link
+  ];
+  for (const text of variants) {
+    const got = sync.fromGroupHash(text);
+    assert.ok(got, '못 읽음: ' + JSON.stringify(text.slice(-30)));
+    assert.deepStrictEqual(got.people.map((p) => p.name), ['민주', '신주']);
+    assert.strictEqual(got.check, group.check);
+  }
+  assert.strictEqual(sync.fromGroupHash('https://example.com/family.html'), null);
+  assert.strictEqual(sync.fromGroupHash('#g=' + 'A'.repeat(40)), null);
+});

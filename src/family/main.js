@@ -1253,8 +1253,7 @@
 
   /** 복사해 온 가족 링크(#g=) 글자를 연다 */
   function openLinkText(text) {
-    var hashAt = text.indexOf('#');
-    var group = sync && hashAt >= 0 && sync.fromGroupHash(text.slice(hashAt));
+    var group = sync && sync.fromGroupHash(text);
     if (!group) return toast('가족 링크가 아닙니다. 링크 전체를 복사해 주세요.');
     return joinGroup(group);
   }
