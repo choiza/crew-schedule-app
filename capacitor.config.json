@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.choiza.crewschedule",
+  "appName": "오늘 민주는",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#13203A",
+    "allowMixedContent": false
+  }
+}

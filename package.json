@@ -1,0 +1,23 @@
+{
+  "name": "crew-schedule-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "오늘 민주는: 승무원 스케줄을 가족용 달력과 공항버스 추천으로",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "python3 -m http.server 8000",
+    "tmap": "node scripts/tmap-travel-times.js",
+    "build:www": "node scripts/build-www.js",
+    "android": "npm run build:www && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/filesystem": "8.1.3",
+    "@capacitor/share": "8.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}

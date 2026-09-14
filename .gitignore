@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+*.log
+.env
+www/
+*.keystore
+*.jks
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/src/main/assets/public/

@@ -1,0 +1,407 @@
+/**
+ * 크루넷 일정을 가족이 읽는 말로 옮긴다.
+ * "KE0017 / LO / KE0018 / KE0018" → LA 출발, LA, 귀국길, 귀국.
+ * 브라우저에서는 window.CrewCal.plan, Node 에서는 require('./plan.js') 로 사용한다.
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) {
+    module.exports = factory(require('../airports.js'));
+  } else {
+    root.CrewCal = root.CrewCal || {};
+    root.CrewCal.plan = factory(root.CrewCal.airports);
+  }
+})(typeof self !== 'undefined' ? self : this, function (airports) {
+  'use strict';
+
+  var WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+  // 근무 코드의 종류. 사용자가 코드마다 바꿀 수 있다.
+  var CATEGORIES = [
+    { value: 'off', label: '휴무' },
+    { value: 'standby', label: '대기' },
+    { value: 'training', label: '교육' },
+    { value: 'work', label: '근무' }
+  ];
+
+  // 한 날에 여러 코드가 겹치면 앞쪽이 이긴다
+  var RANK = ['training', 'work', 'standby', 'vacation', 'off', 'unknown'];
+
+  var KIND_OF = {
+    off: 'off', vacation: 'off', standby: 'standby', training: 'training', work: 'work', unknown: 'other'
+  };
+
+  // 기본 뜻. 크루캘 사전(codes.js)보다 가족에게 맞춘 말이다.
+  var DEFAULT_WORDS = {
+    ATDO: { short: '휴무', long: '의무 휴일 (장거리 비행 뒤 꼭 쉬는 날)', category: 'off' },
+    PDO: { short: '휴무', long: '유급 휴일', category: 'off' },
+    ADO: { short: '휴무', long: '휴일', category: 'off' },
+    DO: { short: '휴무', long: '휴일', category: 'off' },
+    STBY: { short: '대기', long: '대기 근무. 연락이 오면 비행에 나갑니다', category: 'standby' },
+    TFRS: { short: '교육', long: '교육', category: 'training' },
+    GRD: { short: '지상', long: '지상 근무', category: 'work' }
+  };
+
+  var CATEGORY_WORDS = {
+    off: { short: '휴무', long: '휴일' },
+    vacation: { short: '휴가', long: '휴가' },
+    standby: { short: '대기', long: '대기 근무' },
+    training: { short: '교육', long: '교육' },
+    work: { short: '근무', long: '근무' }
+  };
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function addDays(iso, n) {
+    var d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + n));
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  }
+
+  function weekdayOf(iso) {
+    return new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10))).getUTCDay();
+  }
+
+  function daysInMonth(year, month) {
+    return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  }
+
+  function isKorea(iata) {
+    return airports.countryOf(iata) === 'KR';
+  }
+
+  function placeOf(iata) {
+    if (!iata) return null;
+    return {
+      iata: iata,
+      city: airports.cityOf(iata),
+      flag: airports.flagOf(iata) || '',
+      zone: airports.zoneOf(iata)
+    };
+  }
+
+  /**
+   * 코드의 뜻. 사용자가 고친 것 → 기본 뜻 → 크루캘 분류 순.
+   * 반환: { short, long, category, custom }
+   */
+  function wordFor(code, category, words) {
+    var key = String(code || '').toUpperCase();
+    var own = words && words[key];
+    var base = DEFAULT_WORDS[key] || CATEGORY_WORDS[category] || null;
+    if (own) {
+      return {
+        short: own.short || (base && base.short) || key,
+        long: own.long || own.short || (base && base.long) || key,
+        category: own.category || (base && base.category) || category || 'unknown',
+        custom: true
+      };
+    }
+    if (DEFAULT_WORDS[key]) return Object.assign({ custom: false }, DEFAULT_WORDS[key]);
+    if (CATEGORY_WORDS[category]) return Object.assign({ custom: false, category: category }, CATEGORY_WORDS[category]);
+    return { short: key, long: key + ' (뜻을 모르는 코드)', category: 'unknown', custom: false };
+  }
+
+  /** 이어진 날에 걸쳐 적힌 같은 편명을 한 번의 비행으로 묶는다. */
+  function flightRuns(entries) {
+    var byCode = {};
+    entries.forEach(function (entry) {
+      if (entry.type !== 'flight' || !entry.code) return;
+      var code = String(entry.code).toUpperCase();
+      byCode[code] = byCode[code] || {};
+      byCode[code][entry.date] = entry;
+    });
+
+    var runs = [];
+    Object.keys(byCode).forEach(function (code) {
+      var current = null;
+      Object.keys(byCode[code]).sort().forEach(function (date) {
+        if (current && addDays(current.dates[current.dates.length - 1], 1) === date) {
+          current.dates.push(date);
+        } else {
+          current = { code: code, dates: [date], entry: byCode[code][date] };
+          runs.push(current);
+        }
+      });
+    });
+    return runs;
+  }
+
+  /**
+   * 한국을 떠나는 편(out)은 첫날, 한국에 닿는 편(in)은 마지막 날에 일어난다.
+   * 크루넷은 밤을 넘기는 귀국편을 출발일과 도착일 두 칸에 적기 때문이다.
+   */
+  function eventsOf(entries, timeOf) {
+    return flightRuns(entries).map(function (run) {
+      var entry = run.entry;
+      var first = run.dates[0];
+      var last = run.dates[run.dates.length - 1];
+      var ev = { code: run.code, dates: run.dates, from: entry.from || null, to: entry.to || null };
+
+      if (!ev.from || !ev.to) {
+        ev.type = 'unknown';
+        ev.date = first;
+      } else if (isKorea(ev.from) && !isKorea(ev.to)) {
+        ev.type = 'out';
+        ev.date = first;
+        ev.place = placeOf(ev.to);
+      } else if (!isKorea(ev.from) && isKorea(ev.to)) {
+        ev.type = 'in';
+        ev.date = last;
+        ev.startDate = first;
+        ev.place = placeOf(ev.from);
+      } else {
+        ev.type = isKorea(ev.from) ? 'domestic' : 'abroad';
+        ev.date = first;
+        ev.place = placeOf(ev.to);
+      }
+      ev.time = timeOf ? timeOf(ev) : null;
+      return ev;
+    }).sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      // 같은 날이면 떠나는 편이 먼저다 (당일 왕복)
+      if (a.type !== b.type) return a.type === 'out' ? -1 : 1;
+      return 0;
+    });
+  }
+
+  function dutyOf(duties, words) {
+    var best = null;
+    duties.forEach(function (entry) {
+      if (entry.category === 'layover') return;
+      var word = wordFor(entry.code, entry.category, words);
+      var rank = RANK.indexOf(word.category);
+      if (rank < 0) rank = RANK.length;
+      if (!best || rank < best.rank) best = { rank: rank, word: word, code: entry.code };
+    });
+    return best;
+  }
+
+  /**
+   * 한 달치 날마다 무엇을 하는지, 어디에 있는지.
+   * entries 에는 앞뒤 달 일정이 섞여도 된다. 달을 넘는 여행을 잇는 데 쓴다.
+   * options: { timeOf(ev) → 'HH:MM', words: { CODE: { short, long, category } } }
+   */
+  function buildMonth(year, month, entries, options) {
+    var opts = options || {};
+    var prefix = year + '-' + pad(month);
+    var events = eventsOf(entries, opts.timeOf);
+    var trips = events.filter(function (ev) { return ev.type === 'out' || ev.type === 'in'; });
+
+    var byDate = {};
+    entries.forEach(function (entry) {
+      (byDate[entry.date] = byDate[entry.date] || []).push(entry);
+    });
+
+    // 달이 시작할 때 이미 해외에 있었는지
+    var start = prefix + '-01';
+    var abroad = null;
+    trips.forEach(function (ev) {
+      if (ev.date < start) abroad = ev.type === 'out' ? ev.place : null;
+    });
+
+    // 여행 묶음 번호. 달력에서 묶음마다 색을 달리한다.
+    var tripNo = -1;
+    var tripOpen = false;
+    function openTrip() { tripNo++; tripOpen = true; return tripNo; }
+    function continueTrip() { return tripOpen ? tripNo : openTrip(); }
+
+    var days = [];
+    var count = daysInMonth(year, month);
+    for (var d = 1; d <= count; d++) {
+      var iso = prefix + '-' + pad(d);
+      var outs = trips.filter(function (ev) { return ev.type === 'out' && ev.date === iso; });
+      var ins = trips.filter(function (ev) { return ev.type === 'in' && ev.date === iso; });
+      var homeward = trips.filter(function (ev) {
+        return ev.type === 'in' && ev.startDate === iso && ev.date > iso;
+      });
+      var others = events.filter(function (ev) {
+        return (ev.type === 'unknown' || ev.type === 'domestic' || ev.type === 'abroad') &&
+          ev.dates.indexOf(iso) >= 0;
+      });
+      var own = byDate[iso] || [];
+      var duties = own.filter(function (entry) { return entry.type !== 'flight'; });
+
+      // 나가는 편이 이 달 앞에 없어도 귀국편이 걸쳐 있으면 해외에 있던 것이다
+      if (!abroad && !outs.length) {
+        trips.forEach(function (ev) {
+          if (ev.type === 'in' && ev.startDate < iso && ev.date >= iso) abroad = ev.place;
+        });
+      }
+
+      var day = {
+        date: iso,
+        day: d,
+        weekday: weekdayOf(iso),
+        weekdayName: WEEKDAYS[weekdayOf(iso)],
+        outs: outs,
+        ins: ins,
+        homeward: homeward,
+        others: others,
+        trip: null,
+        codes: own.map(function (entry) { return entry.code; }),
+        dutyCodes: duties.map(function (entry) { return entry.code; })
+      };
+
+      if (outs.length && ins.length) {
+        var out = outs[0], back = ins[0];
+        var sameCity = out.place.iata === back.place.iata;
+        var backFirst = out.time && back.time && back.time < out.time;
+        if (sameCity && !backFirst) {
+          day.kind = 'turn';
+          day.place = out.place;
+          day.short = out.place.city;
+          day.sub = '당일 왕복';
+          day.airports = out.from + '⇄' + out.to;
+          day.trip = openTrip();
+          tripOpen = false;
+          abroad = null;
+        } else {
+          day.kind = 'out';
+          day.place = out.place;
+          day.short = out.place.city;
+          day.sub = '귀국 후 출발';
+          day.airports = out.from + '→' + out.to;
+          if (tripOpen) tripOpen = false;
+          day.trip = openTrip();
+          abroad = out.place;
+        }
+      } else if (outs.length) {
+        day.kind = 'out';
+        day.place = outs[0].place;
+        day.short = outs[0].place.city;
+        day.sub = '출발';
+        day.airports = outs[0].from + '→' + outs[0].to;
+        day.trip = openTrip();
+        abroad = outs[0].place;
+      } else if (ins.length) {
+        day.kind = 'in';
+        day.place = ins[0].place;
+        day.short = '귀국';
+        day.sub = ins[0].place.city;
+        day.airports = ins[0].from + '→' + ins[0].to;
+        day.trip = continueTrip();
+        tripOpen = false;
+        abroad = null;
+      } else if (homeward.length) {
+        day.kind = 'homeward';
+        day.place = homeward[0].place;
+        day.short = homeward[0].place.city;
+        day.sub = '귀국길';
+        day.airports = homeward[0].from + '→' + homeward[0].to;
+        day.trip = continueTrip();
+      } else if (abroad) {
+        day.kind = 'away';
+        day.place = abroad;
+        day.short = abroad.city;
+        day.sub = '체류';
+        day.airports = abroad.iata;
+        day.trip = continueTrip();
+      } else {
+        var duty = dutyOf(duties, opts.words);
+        if (duty) {
+          day.kind = KIND_OF[duty.word.category] || 'other';
+          day.category = duty.word.category;
+          day.short = duty.word.short;
+          day.sub = '';
+          day.long = duty.word.long;
+        } else if (others.length) {
+          day.kind = 'flight';
+          day.place = others[0].place || null;
+          day.short = others[0].place ? others[0].place.city : others[0].code;
+          day.sub = '비행';
+          day.airports = others[0].from && others[0].to ? others[0].from + '→' + others[0].to : '';
+        } else {
+          day.kind = 'none';
+          day.short = '';
+          day.sub = '';
+        }
+      }
+      // 달력 칸에 한국 시각을 적는다: 출발일은 출발, 도착일은 도착, 당일 왕복은 둘 다
+      if (day.kind === 'out' && outs[0].time) {
+        day.sub = outs[0].time + ' 출발';
+      } else if (day.kind === 'in' && ins[0].time) {
+        day.sub = ins[0].time + ' 도착';
+      } else if (day.kind === 'turn' && outs[0].time) {
+        day.sub = outs[0].time + (ins[0] && ins[0].time ? '→' + ins[0].time : ' 출발');
+      }
+      day.airports = day.airports || '';
+      days.push(day);
+    }
+
+    return { year: year, month: month, days: days, events: events };
+  }
+
+  var BAND = { out: true, away: true, homeward: true, in: true };
+
+  /** 달력에서 출국부터 귀국까지 한 띠로 잇기 위한 모양 */
+  function bandOf(days, index) {
+    var day = days[index];
+    if (!BAND[day.kind]) return null;
+    var prev = days[index - 1], next = days[index + 1];
+    var startsHere = day.kind === 'out' || !prev || !BAND[prev.kind] || prev.trip !== day.trip || day.weekday === 0;
+    var endsHere = day.kind === 'in' || !next || !BAND[next.kind] || next.trip !== day.trip || day.weekday === 6;
+    var parts = [];
+    if (startsHere) parts.push('start');
+    if (endsHere) parts.push('end');
+    return parts.length ? parts.join(' ') : 'mid';
+  }
+
+  /** 휴일표용 구분: 'off' 휴일, 'work' 근무, 'none' 일정 없음 */
+  function dayType(day) {
+    if (day.kind === 'off') return 'off';
+    if (day.kind === 'none') return 'none';
+    return 'work';
+  }
+
+  /** 달 요약: 출국 횟수, 쉬는 날, 다녀오는 도시 */
+  function summarize(model) {
+    var outs = 0, off = 0, work = 0, cities = [];
+    model.days.forEach(function (day) {
+      if (day.kind === 'out' || day.kind === 'turn') {
+        outs++;
+        if (day.place && cities.indexOf(day.place.city) < 0) cities.push(day.place.city);
+      }
+      var type = dayType(day);
+      if (type === 'off') off++;
+      if (type === 'work') work++;
+    });
+    return { trips: outs, offDays: off, workDays: work, cities: cities };
+  }
+
+  /** [1,2,3,5,7,8] → '1~3, 5, 7~8' */
+  function ranges(numbers) {
+    var out = [];
+    for (var i = 0; i < numbers.length; i++) {
+      var start = numbers[i];
+      while (i + 1 < numbers.length && numbers[i + 1] === numbers[i] + 1) i++;
+      out.push(start === numbers[i] ? String(start) : start + '~' + numbers[i]);
+    }
+    return out.join(', ');
+  }
+
+  /** 이 날 뒤로 처음 인천에 닿는 편 */
+  function returnAfter(model, iso) {
+    for (var i = 0; i < model.events.length; i++) {
+      var ev = model.events[i];
+      if (ev.type === 'in' && ev.date >= iso) return ev;
+    }
+    return null;
+  }
+
+  return {
+    WEEKDAYS: WEEKDAYS,
+    CATEGORIES: CATEGORIES,
+    DEFAULT_WORDS: DEFAULT_WORDS,
+    addDays: addDays,
+    weekdayOf: weekdayOf,
+    daysInMonth: daysInMonth,
+    wordFor: wordFor,
+    flightRuns: flightRuns,
+    eventsOf: eventsOf,
+    buildMonth: buildMonth,
+    bandOf: bandOf,
+    dayType: dayType,
+    summarize: summarize,
+    ranges: ranges,
+    returnAfter: returnAfter,
+    placeOf: placeOf
+  };
+});
