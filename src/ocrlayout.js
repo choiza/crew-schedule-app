@@ -73,7 +73,7 @@
   function fixCodeRaw(token, tone) {
     // 코드 뒤에 붙어 읽힌 칸 선(ATDO-, KE2193.)을 떼어 낸다.
     // 시각(0945-)은 뒤의 - 가 뜻이 있어 그대로 둔다.
-    var trailing = /^([A-Z][A-Z0-9]+)[-.]+$/.exec(token);
+    var trailing = /^([A-Z][A-Z0-9]+)[-./|:]+$/.exec(token);
     if (trailing) token = trailing[1];
 
     // 편명 뒤에 판 테두리가 글자 한 자로 붙어 읽히는 일이 있다(KE1820F).
@@ -261,6 +261,24 @@
     return isSeedFlight(fixed);
   }
 
+  /**
+   * 읽은 코드가 판 색과 맞는지. 연두 판(휴무)에서 IB, 파란 판(비행·체류)에서 RES 가
+   * 나오면 아는 코드라도 잘못 읽은 것이다. 색을 모르거나 모르는 코드면 true.
+   */
+  function fitsTone(token, tone) {
+    var kinds = tone && TONE_KINDS[tone];
+    if (!kinds || !codes) return true;
+    var fixed = fixCode(String(token || '').toUpperCase(), tone);
+    if (codes.splitFlight && codes.splitFlight(fixed)) return kinds.indexOf('flight') !== -1;
+    var found = codes.lookup(fixed);
+    if (!found || !found.category) {
+      // 색을 빼고 고치면 아는 코드가 되는 글자(NES -> RES)는, 그 색에서는 아무 코드도 아니다
+      var loose = codes.lookup(fixCode(String(token || '').toUpperCase()));
+      return !(loose && loose.category);
+    }
+    return kinds.indexOf(found.category) !== -1;
+  }
+
   /** 한 글자를 바꾸거나 넣거나 빼면 같아지는지. */
   function oneEditApart(a, b) {
     if (Math.abs(a.length - b.length) > 1) return false;
@@ -302,6 +320,8 @@
     return {
       text: fixCode(text, word.tone),
       conf: conf,
+      tone: word.tone,
+      onChip: !!word.onChip,
       x0: word.x0, x1: word.x1, y0: word.y0, y1: word.y1,
       cx: (word.x0 + word.x1) / 2,
       cy: (word.y0 + word.y1) / 2,
@@ -753,6 +773,105 @@
    *   shape   'calendar' | 'list' | 'plain'
    *   unsure  인식기가 자신 없어 한 글자들. 미리보기에서 눈으로 확인하라고 보여준다.
    */
+  /**
+   * 몇 년 몇 월인지 화면에서 읽었을 때 쓰는 길: 달력 모양을 먼저 정하고 글자를 칸에 담는다.
+   *
+   * 그 달의 1일이 무슨 요일이고 며칠까지 있는지 알면, 몇째 줄 몇째 칸이 며칠인지는
+   * 계산으로 나온다. 읽은 날짜 숫자는 칸 간격과 줄 간격을 맞추는 데만 쓴다.
+   * 잘못 읽은 숫자(1 -> 11)와 지난달·다음 달의 흐린 숫자는 간격에 맞지 않아 걸러진다.
+   *
+   * 날짜 숫자로 칸을 나누던 예전 길은 사진 크기나 압축에 따라 숫자 몇 개만 틀려도
+   * 한 주가 통째로 빠지거나 옆 주로 밀렸다.
+   */
+  function fromMonthModel(words, opts) {
+    var lead = new Date(Date.UTC(opts.year, opts.month - 1, 1)).getUTCDay();
+    var last = new Date(Date.UTC(opts.year, opts.month, 0)).getUTCDate();
+    var weeks = Math.ceil((lead + last) / 7);
+    var tall = median(words.map(function (w) { return w.h; })) || 10;
+
+    var marks = [];
+    words.forEach(function (w) {
+      if (!DAY.test(w.text) || +w.text > last) return;
+      var at = +w.text + lead - 1;
+      marks.push({ w: w, r: Math.floor(at / 7), c: at % 7 });
+    });
+    if (marks.length < 4) return null;
+
+    // 두 숫자로 칸 간격과 줄 간격을 세워 보고, 가장 많은 숫자가 맞는 것을 고른다
+    var best = null;
+    for (var i = 0; i < marks.length; i++) {
+      for (var j = i + 1; j < marks.length; j++) {
+        var a = marks[i], b = marks[j];
+        if (a.r === b.r || a.c === b.c) continue;
+        var bx = (b.w.cx - a.w.cx) / (b.c - a.c);
+        var by = (b.w.cy - a.w.cy) / (b.r - a.r);
+        if (bx < tall || by < tall * 2) continue;
+        var ax = a.w.cx - bx * a.c;
+        var ay = a.w.cy - by * a.r;
+        var fit = marks.filter(function (m) {
+          return Math.abs(m.w.cx - (ax + bx * m.c)) < bx * 0.2 &&
+            Math.abs(m.w.cy - (ay + by * m.r)) < Math.max(tall * 0.6, by * 0.08);
+        });
+        if (!best || fit.length > best.length) best = fit;
+      }
+    }
+    if (!best || best.length < Math.max(4, marks.length * 0.3)) return null;
+    var rowsSeen = {}, colsSeen = {};
+    best.forEach(function (m) { rowsSeen[m.r] = true; colsSeen[m.c] = true; });
+    if (Object.keys(rowsSeen).length < 2 || Object.keys(colsSeen).length < 2) return null;
+
+    // 맞는 숫자들로 간격을 다시 고르게 잡는다
+    function line(points) {
+      var n = points.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+      points.forEach(function (p) { sx += p[0]; sy += p[1]; sxx += p[0] * p[0]; sxy += p[0] * p[1]; });
+      var slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+      return { at: (sy - slope * sx) / n, step: slope };
+    }
+    var X = line(best.map(function (m) { return [m.c, m.w.cx]; }));
+    var Y = line(best.map(function (m) { return [m.r, m.w.cy]; }));
+
+    // 근무 판을 찾은 화면이면 판 밖의 글자는 칸 선이나 날짜를 잘못 읽은 것이다(AS, 08).
+    // 다만 회색 대기 판(STBY)은 검은 글씨라 색 판으로 잡히지 않으니, 아는 근무 코드는 받는다.
+    var chipped = words.some(function (w) { return w.onChip; });
+    var known = codes ? codes.knownCodeList() : [];
+    var byDay = {};
+    words.forEach(function (w) {
+      if (chipped && !w.onChip && known.indexOf(w.text) === -1) return;
+      var r = Math.floor((w.cy - Y.at + tall * 0.3) / Y.step);
+      if (r < 0 || r >= weeks) return;                             // 달력 위아래의 딴 글
+      var below = w.cy - (Y.at + Y.step * r);
+      // 날짜 줄 높이의 글자는 날짜 숫자이거나 그것을 잘못 읽은 조각이다(11 -> IB).
+      // 크루넷 달력은 근무를 날짜 아래 판에만 적는다.
+      if (below < tall * 0.5) return;
+      var c = Math.round((w.cx - X.at) / X.step);
+      if (c < 0 || c > 6 || Math.abs(w.cx - (X.at + X.step * c)) > X.step * 0.5) return;
+      var day = r * 7 + c - lead + 1;
+      if (day < 1 || day > last) return;                           // 지난달·다음 달 칸
+      (byDay[day] = byDay[day] || []).push(w);
+    });
+
+    return Object.keys(byDay).map(Number).sort(function (a, b) { return a - b; }).map(function (day) {
+      var list = byDay[day].sort(function (a, b) {
+        return Math.abs(a.cy - b.cy) > 4 ? a.cy - b.cy : a.x0 - b.x0;
+      });
+      // 붙어 있는 두 판(KE0123|KE0123)이 한 낱말로 읽혀 두 칸에 겹쳐 들어가는 일이 있다.
+      // 한 날에 같은 코드가 두 번 올 일은 없으니 한 번만 남긴다.
+      var seen = {};
+      var tokens = splitCodes(joinTimes(list.map(function (w) { return w.text; }))).filter(function (t) {
+        if (seen[t]) return false;
+        seen[t] = true;
+        return true;
+      });
+      // 제대로 읽힌 코드가 있는 칸이면, 두 글자 이하의 모르는 글자(ET, 08)는 판 테두리를 읽은 것이다
+      if (tokens.some(function (t) { return known.indexOf(t) !== -1 || isKnownCode(t); })) {
+        tokens = tokens.filter(function (t) {
+          return t.length > 2 || known.indexOf(t) !== -1 || isKnownCode(t);
+        });
+      }
+      return { day: day, tokens: tokens };
+    });
+  }
+
   function toText(words, options) {
     var opts = options || {};
     // 한 낱말 안에 두 코드가 붙어 읽힌 것은 먼저 토막 낸다
@@ -762,7 +881,7 @@
       if (parts.length <= 1) { pieces.push(word); return; }
       parts.forEach(function (part) {
         pieces.push({
-          text: part, conf: word.conf, tone: word.tone,
+          text: part, conf: word.conf, tone: word.tone, onChip: word.onChip,
           x0: word.x0, x1: word.x1, y0: word.y0, y1: word.y1
         });
       });
@@ -785,6 +904,21 @@
         missingDays: [],
         strayDays: []
       };
+    }
+
+    // 화면에서 연·월을 읽었으면 달력 모양으로 맞춘다. 맞출 수 없을 때만 예전 길로 간다.
+    if (opts.known && opts.year && opts.month) {
+      var modeled = fromMonthModel(clean_, opts);
+      if (modeled && modeled.length >= 3) {
+        return {
+          text: cellLines(modeled, opts).join('\n'),
+          missingDays: missingDays(modeled, opts),
+          strayDays: strayDays(modeled),
+          shape: 'calendar',
+          unsure: unsure,
+          dropped: 0
+        };
+      }
     }
 
     var cells = fromCalendar(rowList);
@@ -834,6 +968,7 @@
     splitJunk: splitJunk,
     isKnownCode: isKnownCode,
     isSeedFlight: isSeedFlight,
-    isSettledCode: isSettledCode
+    isSettledCode: isSettledCode,
+    fitsTone: fitsTone
   };
 });

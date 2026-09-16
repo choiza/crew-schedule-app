@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
-  var APP_VERSION = 37;
+  var APP_VERSION = 38;
   (function showVersion() {
     var el = document.getElementById('appVersion');
     if (!el) return;
@@ -2514,6 +2514,9 @@
   function gapNote(gaps) {
     if (!gaps) return '';
     var parts = [];
+    if (gaps.small) {
+      parts.push('사진이 작아 글자를 잘못 읽었을 수 있습니다. 메신저로 받은 사진이면 원본 캡처를 넣어 주세요');
+    }
     var days = gaps.missingDays || [];
     if (days.length) {
       parts.push('못 읽은 날 ' + days.length + '일 (' + gaps.month + '월 ' + days.join(', ') + '일)');
@@ -2613,7 +2616,8 @@
       showPreview(parser.parse(result.text, base), '캡처에서 읽음', {
         month: base.month,
         missingDays: result.missingDays || [],
-        strayDays: result.strayDays || []
+        strayDays: result.strayDays || [],
+        small: !!(result.prepared && result.prepared.width && result.prepared.width < 800)
       });
     }).catch(function (err) {
       setStatus((err && err.message) || '캡처를 읽지 못했습니다.', 'error');

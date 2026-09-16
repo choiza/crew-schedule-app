@@ -414,6 +414,7 @@
           var found = unchip(pixels.data, first.width, first.height);
           var how = enhance(pixels.data, { stretch: found.plates < 4 });
           how.plates = found.plates;
+          how.width = image.width;          // 원래 사진 너비. 메신저로 줄어든 사진을 알아보는 데 쓴다
 
           // 2) 근무 판이 있는 자리만 남긴다. 상태 표시줄이나 메뉴를 읽을 일이 없고,
           //    그만큼 더 키워서 읽을 수 있다. 가로는 그대로 두어 요일 칸을 다 담는다.
@@ -513,7 +514,10 @@
         var words = result.words;
         var missed = missedChips(prepared, words);
         // 화면에서 읽은 연·월이 있으면 그것을 쓴다. 없으면 보고 있던 달에 얹는다.
-        var when = result.month || { year: opts.year, month: opts.month };
+        // known: 화면에서 읽은 연·월이다. 그때만 달력 모양으로 칸을 맞춘다.
+        var when = result.month
+          ? { year: result.month.year, month: result.month.month, known: true }
+          : { year: opts.year, month: opts.month };
         var laid = ocrlayout.toText(attachChips(prepared, words), when);
         return {
           month: result.month,
@@ -608,7 +612,7 @@
           taken[slot.at] = true;
           var box = boxes[slot.at];
           out.push({
-            text: piece, conf: word.conf, tone: box.tone,
+            text: piece, conf: word.conf, tone: box.tone, onChip: true,
             x0: box.x0, x1: box.x1, y0: box.y0, y1: box.y1
           });
         });
@@ -624,7 +628,7 @@
       taken[best] = true;
       var chosen = boxes[best];
       out.push({
-        text: word.text, conf: word.conf, tone: chosen.tone, chip: best, at: word.x0,
+        text: word.text, conf: word.conf, tone: chosen.tone, chip: best, at: word.x0, onChip: true,
         x0: chosen.x0, x1: chosen.x1, y0: chosen.y0, y1: chosen.y1
       });
     });
@@ -718,14 +722,15 @@
     chips.forEach(function (box) {
       var text = textIn(box);
       if (!text || !ocrlayout.isKnownCode(text)) { urgent.push(box); return; }
+      // 아는 코드라도 판 색과 안 맞으면 잘못 읽은 것이다(연두 판의 IB)
+      if (!ocrlayout.fitsTone(text, box.tone)) { urgent.push(box); return; }
       if (!ocrlayout.isSettledCode(text)) { suspect.push(box); return; }
       // 자리는 잡혔지만 흐리게 읽힌 판도 한 번 더 본다
       if (confIn(box) < 80) suspect.push(box);
     });
-    // 급한 판은 모두 다시 읽는다. 한 달 달력의 판은 40여 개라, 폰에서는 흐리게 읽힌
-    // 판이 18개를 넘기 쉽다. 예전에는 18개에서 끊어 뒤쪽(달 끝) 판을 읽지 못했다.
-    urgent = urgent.slice(0, 40);
-    var missing = urgent.concat(suspect.slice(0, Math.max(0, 30 - urgent.length)));
+    // 급한 판도, 흐리게 읽힌 판도 모두 다시 읽는다. 한 달 달력의 판은 40여 개인데
+    // 개수를 끊으면 늘 뒤쪽(달 끝) 판이 밀려났다(29·30·31일). 판 하나는 작아서 빨리 읽힌다.
+    var missing = urgent.concat(suspect);
     if (!missing.length) return Promise.resolve([]);
     var urgentCount = urgent.length;
 
@@ -772,7 +777,7 @@
                   // 판 테두리가 기호로 붙어 읽히곤 한다(LO-). 코드인지 볼 때는 떼고 본다.
                   var flat = text.replace(/[^0-9A-Za-z]+/g, '').toUpperCase();
                   var known = ocrlayout.isKnownCode(flat);
-                  var settled = ocrlayout.isSettledCode(flat);
+                  var settled = ocrlayout.isSettledCode(flat) && ocrlayout.fitsTone(flat, box.tone);
                   var conf = Math.round((result.data && result.data.confidence) || 0);
                   // 아는 코드로 읽힌 것을 모르는 글자로 덮지 않는다
                   var better = !best || (settled && !best.settled) || (known && !best.known) ||
