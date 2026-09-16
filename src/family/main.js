@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
-  var APP_VERSION = 36;
+  var APP_VERSION = 37;
   (function showVersion() {
     var el = document.getElementById('appVersion');
     if (!el) return;

@@ -722,9 +722,12 @@
       // 자리는 잡혔지만 흐리게 읽힌 판도 한 번 더 본다
       if (confIn(box) < 80) suspect.push(box);
     });
-    var missing = urgent.concat(suspect).slice(0, 18);           // 너무 많으면 오래 걸린다
+    // 급한 판은 모두 다시 읽는다. 한 달 달력의 판은 40여 개라, 폰에서는 흐리게 읽힌
+    // 판이 18개를 넘기 쉽다. 예전에는 18개에서 끊어 뒤쪽(달 끝) 판을 읽지 못했다.
+    urgent = urgent.slice(0, 40);
+    var missing = urgent.concat(suspect.slice(0, Math.max(0, 30 - urgent.length)));
     if (!missing.length) return Promise.resolve([]);
-    var urgentCount = Math.min(urgent.length, missing.length);
+    var urgentCount = urgent.length;
 
     // 판이 유난히 높으면 글이 두 줄이다(KE0892 아래 TVL). 그런 판은 한 줄로 읽으라고
     // 하면 두 줄이 섞여 엉뚱한 편명이 나온다. 그래서 덩어리째 읽는 방식으로 바꾼다.
@@ -739,37 +742,75 @@
         var wasSettled = at >= urgentCount;                      // 편명 꼴은 읽혔던 판
         var w = Math.round((box.x1 - box.x0)), h = Math.round((box.y1 - box.y0));
         if (w < 8 || h < 8) return null;
-        var canvas = document.createElement('canvas');
-        canvas.width = w * zoom;
-        canvas.height = h * zoom;
-        var ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(prepared.canvas, box.x0, box.y0, w, h, 0, 0, canvas.width, canvas.height);
-        // 한 줄로도 읽어 보고 낱말 하나로도 읽어 본다. 아는 코드가 나오는 쪽을 쓴다.
+        /** 판의 위아래 일부(from~to, 0~1)만 키워 캔버스에 담는다. */
+        function part(from, to, margin) {
+          var sy = Math.round(h * from), sh = Math.max(1, Math.round(h * (to - from)));
+          var pad = Math.round((margin || 0) * sh * zoom);
+          var canvas = document.createElement('canvas');
+          canvas.width = w * zoom + pad * 2;
+          canvas.height = sh * zoom + pad * 2;
+          var ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(prepared.canvas, box.x0, box.y0 + sy, w, sh, pad, pad, w * zoom, sh * zoom);
+          return canvas;
+        }
+
+        /** 여러 방식으로 읽어 아는 코드가 나오는 쪽을 고른다. */
+        function readBest(canvas, modes) {
+          var best = null;
+          return modes.reduce(function (chain, mode) {
+            return chain.then(function () {
+              if (best && best.settled) return null;
+              return worker.setParameters({ tessedit_pageseg_mode: mode })
+                .then(function () { return worker.recognize(canvas, {}, { text: true }); })
+                .then(function (result) {
+                  var text = String((result.data && result.data.text) || '').trim();
+                  if (!text) return null;
+                  // 판 테두리가 기호로 붙어 읽히곤 한다(LO-). 코드인지 볼 때는 떼고 본다.
+                  var flat = text.replace(/[^0-9A-Za-z]+/g, '').toUpperCase();
+                  var known = ocrlayout.isKnownCode(flat);
+                  var settled = ocrlayout.isSettledCode(flat);
+                  var conf = Math.round((result.data && result.data.confidence) || 0);
+                  // 아는 코드로 읽힌 것을 모르는 글자로 덮지 않는다
+                  var better = !best || (settled && !best.settled) || (known && !best.known) ||
+                    (settled === best.settled && known === best.known && conf > best.conf);
+                  if (better) best = { text: text, conf: conf, known: known, settled: settled };
+                  return null;
+                });
+            });
+          }, Promise.resolve()).then(function () { return best; });
+        }
+
         var twoLines = normalHeight && h > normalHeight * 1.4;
-        var modes = twoLines ? ['6', '4'] : (wasSettled ? ['7', '8'] : ['7', '8', '13']);
-        var best = null;
-        return modes.reduce(function (chain, mode) {
-          return chain.then(function () {
-            if (best && best.settled) return null;
-            return worker.setParameters({ tessedit_pageseg_mode: mode })
-              .then(function () { return worker.recognize(canvas, {}, { text: true }); })
-              .then(function (result) {
-                var text = String((result.data && result.data.text) || '').trim();
-                if (!text) return null;
-                var flat = text.replace(/\s+/g, '');
-                var known = ocrlayout.isKnownCode(flat);
-                var settled = ocrlayout.isSettledCode(flat);
-                var conf = Math.round((result.data && result.data.confidence) || 0);
-                // 아는 코드로 읽힌 것을 모르는 글자로 덮지 않는다
-                var better = !best || (settled && !best.settled) || (known && !best.known) ||
-                  (settled === best.settled && known === best.known && conf > best.conf);
-                if (better) best = { text: text, conf: conf, known: known, settled: settled };
-                return null;
-              });
+        var reading;
+        if (twoLines) {
+          // 두 줄짜리 판(편명 아래 TVL)은 두 줄을 따로 읽는다. 한꺼번에 읽으면 두 줄이
+          // 섞여 편명 숫자 하나를 흘린다(KE0123 -> KEO12).
+          reading = readBest(part(0, 0.6), ['7', '8']).then(function (top) {
+            if (!top || !top.settled) return readBest(part(0, 1), ['6', '4']);
+            return readBest(part(0.55, 1), ['7']).then(function (bottom) {
+              // 아래 줄은 TVL 표시다. 비슷하게라도 읽혔을 때만 TVL 로 붙이고 딴 글자는 버린다(TM).
+              var under = bottom ? bottom.text.replace(/[^A-Za-z]+/g, '').toUpperCase() : '';
+              var tail = /^(TVL|TYL|TUL|IVL|TV)$/.test(under) ? ' TVL' : '';
+              return { text: top.text + tail, conf: top.conf, known: true, settled: true };
+            });
           });
-        }, Promise.resolve()).then(function () {
+        } else {
+          // 한 줄로도 읽어 보고 낱말 하나로도 읽어 본다. 그래도 아는 코드가 안 나오면
+          // 둘레에 흰 여백을 둘러 다시 읽는다. 판 가장자리에 바짝 붙은 글자(LO)는
+          // 여백이 있어야 읽힌다.
+          reading = readBest(part(0, 1), wasSettled ? ['7', '8'] : ['7', '8', '13']).then(function (plain) {
+            if (plain && plain.settled) return plain;
+            return readBest(part(0, 1, 0.12), ['7', '8']).then(function (padded) {
+              if (padded && (padded.settled || (padded.known && !(plain && plain.known)))) return padded;
+              return plain;
+            });
+          });
+        }
+        return reading.then(function (best) {
           if (!best) return null;
           // 이미 편명 꼴로 읽혀 있던 판은, 다시 읽어 노선표에 있는 편이 나올 때만 바꾼다.
           // 더 흐린 결과로 멀쩡한 값을 덮지 않기 위해서다.

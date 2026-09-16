@@ -93,6 +93,11 @@
     // 편으로 갈아 끼우지도 않는다. KE0601 이 KE0502 로 바뀌어 나온 일이 있었다.
     var flight = new RegExp('^([A-Z]{2})([' + DIGITISH + ']{3,7})$').exec(token);
     if (flight) {
+      // S·G 는 두 숫자로 읽힐 수 있다(S -> 5, 8). 시간표에 있는 쪽이 하나뿐이면 그쪽이다.
+      if (/[SG]/.test(flight[2])) {
+        var known = flightCandidates(flight[1], flight[2]).filter(isSeedFlight);
+        if (known.length === 1) return known[0];
+      }
       var digits = toDigits(flight[2]);
       if (digits) {
         var trimmed = digits.replace(/^0+/, '') || '0';
@@ -574,6 +579,30 @@
     var weekHeight = gaps.length ? median(gaps) : (lowest - dayRows[0].cy) + tall;
     dayRows.forEach(function (band) {
       band.days = daysOfWeekRow({ words: band.marks }, columns);
+    });
+
+    // 5) 날짜가 하나만 읽힌 줄. 첫 주·마지막 주는 한 자리 숫자(1, 3)가 가늘고
+    //    지난달 날짜는 흐린 회색이라, 한 줄에 숫자가 하나만 남는 일이 있다.
+    //    옆 주와 같은 칸에서 꼭 7일 차이가 나면 날짜 줄로 받아 준다.
+    bands.forEach(function (band) {
+      if (band.marks.length !== 1 || dayRows.indexOf(band) >= 0) return;
+      var mark = band.marks[0];
+      var day = +mark.text;
+      var col = nearestColumn(mark.cx, columns);
+      var fits = dayRows.some(function (row) {
+        var gap = row.cy - band.cy;
+        if (Math.abs(Math.abs(gap) - weekHeight) > weekHeight * 0.3) return false;
+        var near = row.days[col];
+        if (near == null) return false;
+        return gap > 0 ? near - 7 === day : near + 7 === day;
+      });
+      if (!fits) return;
+      band.days = daysOfWeekRow({ words: band.marks }, columns);
+      dayRows.push(band);
+    });
+    dayRows.sort(function (a, b) { return a.cy - b.cy; });
+
+    dayRows.forEach(function (band) {
       band.markSet = {};
       (band.allMarks || band.marks).forEach(function (m) { band.markSet[m.x0 + '|' + m.y0 + '|' + m.text] = true; });
     });
@@ -603,6 +632,8 @@
       if (!band) return;                                            // 첫 날짜 줄보다 위
       if (word.cy > lastBand.cy + grid.weekHeight) return;          // 달력 아래의 딴 글
       if (band.markSet[word.x0 + '|' + word.y0 + '|' + word.text]) return;   // 날짜 숫자 자신
+      // 날짜 줄 높이에 있는 숫자 꼴 글자는 날짜를 잘못 읽은 것이다(27 -> 2/). 근무가 아니다.
+      if (band.marks.length && Math.abs(word.cy - band.cy) < grid.tall * 0.5 && /^[0-9/|.\-]+$/.test(word.text)) return;
       var col = columnOf(word.cx, grid.columns);
       if (col == null) return;                                      // 어느 칸에도 안 든다
       band.cells[col].tokens.push(word);
