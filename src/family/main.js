@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
-  var APP_VERSION = 38;
+  var APP_VERSION = 39;
   (function showVersion() {
     var el = document.getElementById('appVersion');
     if (!el) return;
@@ -1079,7 +1079,16 @@
         (word.custom && !isNewCode(code, word) ? '<button type="button" class="reset" data-word-reset="' + esc(code) + '">되돌리기</button>' : '') +
         (db.confirmed[code] ? '' : '<button type="button" class="btn btn-small" data-word-ok="' + esc(code) + '">맞음</button>') +
       '</span>' +
+      codeNote(code, word) +
       '</div>';
+  }
+
+  /** 고치는 줄 아래의 설명: 뜻, 어디서 온 뜻인지, 스케줄에 며칠 나왔는지 */
+  function codeNote(code, word) {
+    var days = codeDays(code);
+    var source = SOURCE_TEXT[plan.wordSource(code, categoryOf(code), db.words)];
+    var parts = [word.long, source, days ? days + '일' : ''].filter(Boolean);
+    return '<small class="code-note">' + esc(parts.join(', ')) + '</small>';
   }
 
   /** 기본 뜻이 없는 코드. 앱이 모르는 코드라 사람이 뜻을 정해야 한다. */
@@ -2771,22 +2780,24 @@
     if ($('resetWordsRow')) $('resetWordsRow').hidden = !editCodes;
     var known = plan.allKnownCodes().filter(function (code) { return codes.indexOf(code) < 0; });
     var usedInSchedule = function (code) { return codeDays(code) > 0; };
-    $('codeList').innerHTML =
-      '<p class="code-sub">지금 쓰는 코드 ' + codes.length + '개</p>' +
-      (codes.length
-        ? '<div class="code-table">' + codes.map(function (code) { return codeLine(code, usedInSchedule(code) || !!db.words[code]); }).join('') + '</div>'
-        : '<p class="note">스케줄을 넣으면 여기에 코드가 나옵니다.</p>') +
-      '<details class="codes-done"><summary>앱이 뜻을 아는 코드 ' + known.length + '개 더 보기</summary><div class="code-table">' +
-        known.map(function (code) { return codeLine(code, false); }).join('') + '</div></details>' +
-      (!editCodes ? '' : '<p class="code-sub">고치기</p>' + (waiting.length
-        ? '<p class="code-count">확인할 코드 ' + waiting.length + '개</p>' +
-          waiting.map(function (code) { return codeRow(code, 'set'); }).join('') +
-          (waiting.length > 1 ? '<div class="btn-row"><button type="button" id="confirmAllWords" class="btn btn-small">' + waiting.length + '개 모두 맞음</button></div>' : '')
-        : '<p class="note">' + (codes.length ? '확인할 코드가 없습니다. 새 스케줄에 처음 보는 코드가 나오면 여기에 뜹니다.' : '스케줄을 넣으면 여기에 코드가 나옵니다.') + '</p>') +
-      (done.length
-        ? '<details class="codes-done"><summary>확정한 코드 ' + done.length + '개 다시 고치기</summary><div class="code-list">' +
-          done.map(function (code) { return codeRow(code, 'done'); }).join('') + '</div></details>'
-        : ''));
+    // 펼쳐 두는 것은 확인이 필요한 코드뿐이다. 확정한 코드와 앱이 아는 코드는 접어 둔다.
+    var knownFold = '<details class="codes-done"><summary>앱이 뜻을 아는 코드 ' + known.length + '개 더 보기</summary><div class="code-table">' +
+      known.map(function (code) { return codeLine(code, false); }).join('') + '</div></details>';
+    $('codeList').innerHTML = !editCodes
+      ? (codes.length
+          ? '<details class="codes-done"><summary>지금 쓰는 코드 ' + codes.length + '개 보기</summary><div class="code-table">' +
+            codes.map(function (code) { return codeLine(code, usedInSchedule(code) || !!db.words[code]); }).join('') + '</div></details>'
+          : '<p class="note">스케줄을 넣으면 여기에 코드가 나옵니다.</p>') + knownFold
+      : (waiting.length
+          ? '<p class="code-count">확인 필요 ' + waiting.length + '개</p>' +
+            '<div class="code-list">' + waiting.map(function (code) { return codeRow(code, 'set'); }).join('') + '</div>' +
+            (waiting.length > 1 ? '<div class="btn-row"><button type="button" id="confirmAllWords" class="btn btn-small">' + waiting.length + '개 모두 맞음</button></div>' : '')
+          : '<p class="note">' + (codes.length ? '확인할 코드가 없습니다. 새 스케줄에 처음 보는 코드가 나오면 여기에 뜹니다.' : '스케줄을 넣으면 여기에 코드가 나옵니다.') + '</p>') +
+        (done.length
+          ? '<details class="codes-done" id="codesDoneFold"><summary>확정한 코드 ' + done.length + '개 (눌러서 고치기)</summary><div class="code-list">' +
+            done.map(function (code) { return codeRow(code, 'done'); }).join('') + '</div></details>'
+          : '') +
+        knownFold;
 
     $('timetableSummary').textContent = '내 출발지 버스 시간표 보기';
     var tables = [];
