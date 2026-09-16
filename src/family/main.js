@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
-  var APP_VERSION = 42;
+  var APP_VERSION = 43;
   (function showVersion() {
     var el = document.getElementById('appVersion');
     if (!el) return;
@@ -1422,7 +1422,7 @@
   }
 
   function familyPayload() {
-    return { app: 'crew-family-sync', v: 1, name: NAME, entries: db.entries, words: db.words, routeFix: db.routeFix, overrides: db.overrides, booked: db.booked || {}, blockFix: db.blockFix || {} };
+    return { app: 'crew-family-sync', v: 1, name: NAME, entries: db.entries, words: db.words, confirmed: db.confirmed || {}, routeFix: db.routeFix, overrides: db.overrides, booked: db.booked || {}, blockFix: db.blockFix || {} };
   }
 
   /** 관리자 폰에서 가족 링크 사람의 스케줄을 넣거나 고치면 3초 뒤 잠가서 올린다. */
@@ -1510,6 +1510,8 @@
         var target = local;
         target.entries = payload.entries;
         target.words = payload.words || {};
+        // 맞음을 누른 표시도 받는다. 예전 판이 올린 스케줄에는 없으니 그때는 이 폰 것을 둔다.
+        if (payload.confirmed && typeof payload.confirmed === 'object') target.confirmed = payload.confirmed;
         target.routeFix = payload.routeFix || {};
         target.overrides = payload.overrides || {};
         target.blockFix = payload.blockFix || {};
