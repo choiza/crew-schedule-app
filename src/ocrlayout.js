@@ -471,8 +471,13 @@
     for (var cut = 2; cut < columns.length; cut++) {
       var left = baseOf(reads.filter(function (read) { return read.col < cut; }));
       var right = baseOf(reads.filter(function (read) { return read.col >= cut; }));
-      if (!left || !right || left.votes < 2 || right.votes < 2) continue;
+      if (!left || !right || left.votes < 2) continue;
       if (left.base === right.base) continue;
+      // 달이 바뀌는 주에서 새 달 쪽 숫자가 하나밖에 안 읽히는 일이 잦다.
+      // 첫 주는 1·2·3 처럼 한 자리라 칸 선과 붙어 읽히기 때문이다. 그럴 때는
+      // "꺾이는 칸이 곧 1일" 일 때만 받아 준다. 31 을 3 으로 잘못 읽은 것과
+      // 달이 바뀐 것을 이 하나로 가른다.
+      if (right.votes < 2 && right.base + cut !== 1) continue;
       var score = left.votes + right.votes;
       if (score > bestPlan.score) {
         bestPlan = { score: score, cut: cut, left: left, right: right };
@@ -505,6 +510,15 @@
    * 같은 띠에 묶여 읽혔든 상관없다. 세로줄은 그 날짜 숫자들의 x 로 잡는다.
    * 글자는 자기가 든 (가로줄, 세로줄) 칸에만 귀속된다.
    */
+  /** 가로로 늘어놓았을 때 숫자가 커지지 않고 꺾이는 횟수 */
+  function breaksOf(sorted) {
+    var breaks = 0;
+    for (var i = 1; i < sorted.length; i++) {
+      if (+sorted[i].text <= +sorted[i - 1].text) breaks++;
+    }
+    return breaks;
+  }
+
   function gridOf(rowList) {
     var words = [];
     rowList.forEach(function (row) { row.words.forEach(function (w) { words.push(w); }); });
@@ -529,14 +543,23 @@
 
     // 3) 달력 날짜 줄처럼 생긴 것만 남긴다: 둘 이상이 서로 다른 자리에서 커져 간다.
     //    첫 주·마지막 주는 날짜가 몇 개 안 읽히는 일이 잦아 둘까지 받아 준다.
-    var dayRows = bands.filter(function (band) {
-      if (band.marks.length < 2) return false;
+    //    숫자 하나를 잘못 읽으면(1 이 칸 선과 붙어 11 로) 꺾임이 한 번 더 생긴다.
+    //    예전에는 그 주를 통째로 버려서 그 주가 달력에서 사라졌다. 이제는 어긋난
+    //    숫자 하나만 빼고 그 주를 살린다.
+    var dayRows = [];
+    bands.forEach(function (band) {
+      if (band.marks.length < 2) return;
       var sorted = band.marks.slice().sort(function (a, b) { return a.cx - b.cx; });
-      var breaks = 0;
-      for (var i = 1; i < sorted.length; i++) {
-        if (+sorted[i].text <= +sorted[i - 1].text) breaks++;
+      if (breaksOf(sorted) <= 1) { dayRows.push(band); return; }   // 달이 바뀌는 주는 한 번 꺾인다
+      for (var i = 0; i < sorted.length; i++) {
+        var without = sorted.slice(0, i).concat(sorted.slice(i + 1));
+        if (without.length >= 2 && breaksOf(without) <= 1) {
+          band.allMarks = sorted;        // 뺀 숫자도 날짜 자리다. 근무로 새어 들지 않게 한다.
+          band.marks = without;
+          dayRows.push(band);
+          return;
+        }
       }
-      return breaks <= 1;            // 달이 바뀌는 주는 한 번 꺾인다
     });
     if (!dayRows.length) return null;
 
@@ -552,7 +575,7 @@
     dayRows.forEach(function (band) {
       band.days = daysOfWeekRow({ words: band.marks }, columns);
       band.markSet = {};
-      band.marks.forEach(function (m) { band.markSet[m.x0 + '|' + m.y0 + '|' + m.text] = true; });
+      (band.allMarks || band.marks).forEach(function (m) { band.markSet[m.x0 + '|' + m.y0 + '|' + m.text] = true; });
     });
 
     return { dayRows: dayRows, columns: columns, words: words, weekHeight: weekHeight, tall: tall };

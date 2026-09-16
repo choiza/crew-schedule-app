@@ -2495,7 +2495,29 @@
     el.className = 'status' + (tone ? ' is-' + tone : '');
   }
 
-  function showPreview(result, source) {
+  /**
+   * 캡처에서 못 읽은 날을 알린다.
+   *
+   * 크루넷 달력은 날마다 코드가 있으니, 빈 날은 곧 읽기에 실패한 날이다. 조용히
+   * 넘어가면 그 날이 달력에서 통째로 빠진 채 남고, 한참 뒤에야 눈으로 알아챈다.
+   * 첫 주의 1·2·3 처럼 한 자리 날짜가 칸 선과 붙어 읽히면 잘 빠진다.
+   */
+  function gapNote(gaps) {
+    if (!gaps) return '';
+    var parts = [];
+    var days = gaps.missingDays || [];
+    if (days.length) {
+      parts.push('못 읽은 날 ' + days.length + '일 (' + gaps.month + '월 ' + days.join(', ') + '일)');
+    }
+    if ((gaps.strayDays || []).length) {
+      parts.push('칸이 어긋난 날 ' + gaps.strayDays.map(function (x) { return x.day + '일'; }).join(', '));
+    }
+    if (!parts.length) return '';
+    return '<p class="callout">' + esc(parts.join(' · ')) +
+      ' — 넣은 뒤 그 날짜를 눌러 직접 넣거나, 그 주가 잘리지 않게 다시 캡처해 주세요.</p>';
+  }
+
+  function showPreview(result, source, gaps) {
     var list = slim(result.entries);
     if (!list.length) {
       setStatus('날짜와 근무를 찾지 못했습니다. 달력 전체가 보이게 다시 캡처해 주세요.', 'error');
@@ -2524,6 +2546,7 @@
       '<header class="sheet-head"><p class="eyebrow">' + esc(source) + '</p>' +
       '<h2 id="previewTitle" class="display">' + esc(monthNames.join(', ')) + ' 스케줄 ' + list.length + '건</h2>' +
       '<p class="lede">날짜와 근무가 맞는지 봐 주세요. 넣은 뒤에도 날짜를 눌러 고칠 수 있습니다.</p></header>' +
+      gapNote(gaps) +
       (unknown ? '<p class="callout">모르는 코드가 ' + unknown + '개 있어요. 글자를 잘못 읽었을 수 있습니다.</p>' : '') +
       '<ul class="preview-list">' + rows + '</ul>' +
       '<div class="btn-row"><button type="button" class="btn btn-primary btn-grow" id="applyPreview">이대로 넣기</button>' +
@@ -2578,7 +2601,11 @@
       }
       var base = result.month || { year: now.getFullYear(), month: now.getMonth() + 1 };
       setStatus(result.month ? base.year + '년 ' + base.month + '월 캡처로 읽었습니다.' : '몇 월인지 못 읽어 이번 달로 넣었습니다.', 'ok');
-      showPreview(parser.parse(result.text, base), '캡처에서 읽음');
+      showPreview(parser.parse(result.text, base), '캡처에서 읽음', {
+        month: base.month,
+        missingDays: result.missingDays || [],
+        strayDays: result.strayDays || []
+      });
     }).catch(function (err) {
       setStatus((err && err.message) || '캡처를 읽지 못했습니다.', 'error');
     }).then(function () {
@@ -3161,13 +3188,18 @@
     renderAdmin();
     // 예시를 보고 있거나, 새로 추가한 사람이라 스케줄이 비어 있으면 캡처를 넣으라고 알린다
     var empty = !rawEntries().length;
-    $('sampleBanner').hidden = !(isSample() || empty);
+    // 가족 링크 사람이 아니면 이 폰에만 저장된다. 가족이 못 보는 상태라고 알려 준다.
+    var me = currentPerson();
+    var localOnly = !isSample() && !empty && !(me && me.follow) && NAME !== TEST_NAME;
+    $('sampleBanner').hidden = !(isSample() || empty || localOnly);
     $('sampleText').innerHTML = isSample()
       ? (NAME === TEST_NAME ? '<strong>테스트</strong> 사람이라 예시 스케줄이 보입니다.' : '지금 보이는 건 <strong>예시 스케줄</strong>입니다.')
-      : '<strong>' + esc(NAME) + '</strong> 스케줄이 아직 없습니다.';
-    $('sampleGo').textContent = NAME + ' 캡처 넣기';
+      : empty ? '<strong>' + esc(NAME) + '</strong> 스케줄이 아직 없습니다.'
+      : '<strong>' + esc(NAME) + '</strong> 스케줄은 이 폰에만 있습니다. 가족에게는 안 보여요.';
+    $('sampleGo').textContent = localOnly ? '가족과 나누기' : NAME + ' 캡처 넣기';
+    $('sampleGo').dataset.go = localOnly ? 'settings' : 'import';
     var editable = canEdit();
-    $('sampleGo').hidden = !editable;
+    $('sampleGo').hidden = !editable && !localOnly;
     document.querySelectorAll('.tab[data-go="import"]').forEach(function (tab) { tab.hidden = !editable; });
     if ($('clearData')) $('clearData').hidden = !editable;
     renderInstall();
