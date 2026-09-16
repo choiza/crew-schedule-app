@@ -1519,6 +1519,7 @@ details.fold[open] > summary { margin-bottom: 12px; }
 .tg-cell b { font: 600 13px/1 var(--f-mono); font-variant-numeric: tabular-nums; }
 .tg-cell.is-sun b { color: var(--warn); }
 .tg-cell small { display: block; max-width: 100%; font-size: 10.5px; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+.tg-cell .tg-off { color: var(--off); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tg-cell.is-both { background: var(--off-tint); box-shadow: inset 0 0 0 1.5px var(--off); }
 .tg-cell.is-both .tg-off { color: var(--off); font-weight: 700; }
 .tg-cell.is-same { box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -1528,6 +1529,8 @@ details.fold[open] > summary { margin-bottom: 12px; }
 .tg-week.is-sun { color: var(--warn); }
 .together-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 8px 0 0; font-size: 12.5px; color: var(--ink-2); }
 .tg-key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: -8px; vertical-align: -1px; }
+.tg-key.is-off { background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--off); opacity: .6; }
+.together-count { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2); }
 .tg-key.is-both { background: var(--off-tint); box-shadow: inset 0 0 0 1.5px var(--off); }
 .tg-key.is-same { background: var(--surface-2); box-shadow: inset 0 0 0 1.5px var(--accent); }
 

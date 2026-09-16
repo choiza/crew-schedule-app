@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
-  var APP_VERSION = 41;
+  var APP_VERSION = 42;
   (function showVersion() {
     var el = document.getElementById('appVersion');
     if (!el) return;
@@ -1734,10 +1734,16 @@
     return plan.buildMonth(year, month, own, { timeOf: timeOfOther, words: raw.words || {} });
   }
 
-  /** 함께 보기 달력: 같이 쉬는 날은 초록, 같은 날 같은 도시는 도시 이름. 날짜를 누르면 그날 달력으로 간다. */
+  /**
+   * 함께 보기 달력. 칸마다 그날 쉬는 사람 이름을 적고, 둘 이상 같이 쉬면 초록으로 칠한다.
+   * 같은 날 같은 도시에 있으면 도시 이름을 적는다. 날짜를 누르면 그날 달력으로 간다.
+   */
   function togetherCalendar(year, month, cmp) {
-    var both = {}, same = {};
+    var both = {}, same = {}, offBy = {};
     cmp.together.forEach(function (row) { both[row.date] = row; });
+    cmp.offs.forEach(function (row) {
+      row.days.forEach(function (day) { (offBy[day] = offBy[day] || []).push(row.name); });
+    });
     cmp.samePlace.forEach(function (row) { (same[row.date] = same[row.date] || []).push(row); });
     var first = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
     var days = new Date(Date.UTC(year, month, 0)).getUTCDate();
@@ -1745,16 +1751,17 @@
     for (var blank = 0; blank < first; blank++) cells.push('<span class="tg-cell is-blank" aria-hidden="true"></span>');
     for (var d = 1; d <= days; d++) {
       var iso = year + '-' + (month < 10 ? '0' : '') + month + '-' + (d < 10 ? '0' : '') + d;
-      var off = both[iso], here = same[iso];
+      var off = both[iso], here = same[iso], resting = offBy[d] || [];
       var label = [];
       if (off) label.push('같이 휴무: ' + off.names.join(', '));
+      else if (resting.length) label.push('휴무: ' + resting.join(', '));
       if (here) here.forEach(function (row) { label.push(row.city + ': ' + row.names.join(', ')); });
       var weekday = (first + d - 1) % 7;
       cells.push('<button type="button" class="tg-cell' + (off ? ' is-both' : '') + (here ? ' is-same' : '') +
         (weekday === 0 ? ' is-sun' : weekday === 6 ? ' is-sat' : '') + (iso === todayIso() ? ' is-today' : '') +
         '" data-date="' + iso + '" aria-label="' + esc(dateLabel(iso) + (label.length ? ', ' + label.join('. ') : '')) + '">' +
         '<b>' + d + '</b>' +
-        (off ? '<small class="tg-off">휴무</small>' : '') +
+        resting.map(function (name) { return '<small class="tg-off">' + esc(name) + '</small>'; }).join('') +
         (here ? here.map(function (row) { return '<small class="tg-city">' + (row.flag ? row.flag + ' ' : '') + esc(row.city) + '</small>'; }).join('') : '') +
         '</button>');
     }
@@ -1779,16 +1786,13 @@
       return nav + '<p class="note">이 달에 스케줄이 올라온 사람이 없어요.</p>';
     }
     var cmp = plan.together(list);
-    var html = nav + '<h4 class="choices-title">사람마다 휴무</h4><ul class="together-list">' + cmp.offs.map(function (row) {
-      return '<li><b>' + esc(row.name) + '</b><span>' + esc(row.text || '없음') + '</span><small>' + row.days.length + '일</small></li>';
-    }).join('') + '</ul>';
+    var html = nav + togetherCalendar(year, month, cmp) +
+      '<p class="together-legend"><span class="tg-key is-off"></span>휴무인 사람<span class="tg-key is-both"></span>같이 휴무<span class="tg-key is-same"></span>같은 날 같은 도시</p>' +
+      '<p class="together-count">' + cmp.offs.map(function (row) { return esc(row.name) + ' 휴무 ' + row.days.length + '일'; }).join(', ') + '</p>';
     if (list.length < 2) {
-      return html + '<p class="note">이 달에 스케줄이 올라온 사람만 보입니다. 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 달력에 보여요.</p>';
+      return html + '<p class="note">이 달에 스케줄이 있는 사람이 한 명이라 그 사람 휴무만 보입니다. 둘 이상이면 같이 쉬는 날과 같은 날 같은 곳에 있는 날이 칠해집니다.</p>';
     }
-    html += togetherCalendar(year, month, cmp) +
-      '<p class="together-legend"><span class="tg-key is-both"></span>같이 휴무<span class="tg-key is-same"></span>같은 날 같은 도시</p>' +
-      (cmp.together.length || cmp.samePlace.length ? '' : '<p class="note">이 달에는 같이 쉬는 날도, 같은 도시에 있는 날도 없어요.</p>');
-    return html;
+    return html + (cmp.together.length || cmp.samePlace.length ? '' : '<p class="note">이 달에는 같이 쉬는 날도, 같은 도시에 있는 날도 없어요.</p>');
   }
 
   /** 고를 수 있는 코드: 근무 코드 사전과 대한항공 노선 시드. 한 번 만들어 둔다. */
