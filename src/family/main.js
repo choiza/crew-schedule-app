@@ -14,7 +14,7 @@
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
   // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
-  var APP_VERSION = 40;
+  var APP_VERSION = 41;
   (function showVersion() {
     var el = document.getElementById('appVersion');
     if (!el) return;
@@ -1675,10 +1675,18 @@
     var me = currentPerson();
     var mine = me && me.follow;
     var manager = isManager();
-    box.innerHTML =
+    var locals = localPeople().filter(hasSchedule);
+    var shareBlock = !locals.length ? ''
+      : manager
+        ? '<div class="share-locals"><p class="note"><b>이 폰에만 있는 스케줄</b>이 있습니다. 올리면 가족 링크를 가진 모든 폰에서 보입니다.</p>' +
+          '<div class="btn-row">' + locals.map(function (p) {
+            return '<button type="button" class="btn btn-primary btn-grow" data-person-share="' + esc(p.id) + '">' + esc(p.name) + ' 스케줄 가족 링크에 올리기</button>';
+          }).join('') + '</div></div>'
+        : '<p class="note">' + esc(locals.map(function (p) { return p.name; }).join(', ')) + ' 스케줄은 이 폰에만 있습니다. 관리자를 켜면 가족 링크에 올릴 수 있습니다.</p>';
+    box.innerHTML = shareBlock +
       (group.people.length
         ? '<p class="note">가족 링크로 ' + esc(group.people.map(function (p) { return p.name; }).join(', ')) + ' 스케줄을 봅니다. 앱을 열 때와 30분마다 최신으로 바뀝니다.'
-        : '<p class="note">가족 링크를 넣었습니다. 아직 명단이 없습니다. 관리자가 제목을 눌러 사람을 추가하면 들어옵니다.') +
+        : '<p class="note">가족 링크를 넣었습니다. 아직 명단이 없습니다. ' + (manager ? '위 버튼으로 이 폰의 스케줄을 올리거나, 제목을 눌러 사람을 추가하세요.' : '관리자가 사람을 올리면 들어옵니다.')) +
         (mine ? ' ' + esc(NAME) + ' 마지막으로 받은 때: ' + esc(clockText(me.follow.at)) : '') + '</p>' +
       (mine && me.follow.error ? '<p class="callout">' + esc(me.follow.error) + '</p>' : '') +
       (manager
@@ -3032,6 +3040,8 @@
         '<button type="button" class="person-main" data-person-switch="' + esc(person.id) + '"' + (on ? ' aria-current="true"' : '') + '>' +
           '<span class="person-dot" aria-hidden="true"></span><span class="person-name">' + esc(person.name) + '<small>' + esc(where) + '</small></span>' +
           (on ? '<span class="route-chip">보는 중</span>' : '') + '</button>' +
+        (joined && manager && !person.follow && person.name !== TEST_NAME
+          ? '<button type="button" class="btn btn-small" data-person-share="' + esc(person.id) + '">가족 링크에 올리기</button>' : '') +
         (viewer ? '' : '<button type="button" class="icon-btn" data-person-rename="' + esc(person.id) + '" aria-label="' + esc(person.name) + ' 이름 바꾸기">' + ICON.edit + '</button>') +
         (shown.length > 1 || person.follow || hasSchedule(person) ? '<button type="button" class="btn btn-small btn-quiet" data-person-delete="' + esc(person.id) + '">지우기</button>' : '') +
         '</li>';
@@ -3099,6 +3109,46 @@
     people.list.push({ id: id, name: clean });
     savePeople();
     switchPerson(id, clean + '을(를) 이 폰에만 추가했습니다. 캡처를 넣어 주세요.');
+  }
+
+  /** 이 폰에만 있는 사람(가족 링크도 테스트도 아닌 사람) */
+  function localPeople() {
+    return people.list.filter(function (p) { return !p.follow && p.name !== TEST_NAME; });
+  }
+
+  /**
+   * 이 폰에만 있던 사람을 스케줄째 가족 링크에 올린다. 관리자 폰에서만 된다.
+   * 이미 캡처를 넣어 둔 사람을 새로 추가할 필요 없이 그대로 가족 모두에게 보이게 한다.
+   */
+  function sharePerson(id) {
+    var person = people.list.filter(function (p) { return p.id === id; })[0];
+    if (!person || person.follow || person.name === TEST_NAME) return Promise.resolve();
+    var group = groupInfo();
+    if (!group) { go('settings'); toast('먼저 설정에서 가족 링크를 넣어 주세요.'); return Promise.resolve(); }
+    if (!isManager()) { go('settings'); toast('관리자를 켜야 가족 링크에 올릴 수 있습니다.'); return Promise.resolve(); }
+    if (!familyOn()) { toast('이 주소에서는 가족 링크를 쓸 수 없습니다.'); return Promise.resolve(); }
+    if (group.people.some(function (m) { return m.name === person.name; })) {
+      toast('가족 명단에 ' + person.name + '이(가) 이미 있습니다. 이름을 바꾼 뒤 올려 주세요.');
+      return Promise.resolve();
+    }
+    var link = sync.newLink();
+    group.people.push({ name: person.name, id: link.id, key: link.key });
+    saveGroup(group);
+    person.follow = { id: link.id, key: link.key, at: null, error: '', dirty: true };
+    savePeople();
+    if (id !== people.current) switchPerson(id, person.name + ' 스케줄을 가족 링크에 올리는 중입니다.');
+    else toast(person.name + ' 스케줄을 가족 링크에 올리는 중입니다.');
+    if ($('peopleSheet').open) renderPeople();
+    return ensureTokens()
+      .then(syncDirectory)
+      .then(function () { return uploadFamily(false, id); })
+      .then(function () {
+        var failed = person.follow && person.follow.error;
+        toast(failed ? '올리지 못했습니다: ' + failed : person.name + ' 스케줄을 가족 링크에 올렸습니다. 가족 폰에서 Sync 하면 보입니다.');
+        render();
+        if ($('peopleSheet').open) renderPeople();
+      })
+      .catch(function (err) { toast('가족 명단을 올리지 못했습니다: ' + err.message); });
   }
 
   function renamePerson(id) {
@@ -3230,8 +3280,10 @@
       ? (NAME === TEST_NAME ? '<strong>테스트</strong> 사람이라 예시 스케줄이 보입니다.' : '지금 보이는 건 <strong>예시 스케줄</strong>입니다.')
       : empty ? '<strong>' + esc(NAME) + '</strong> 스케줄이 아직 없습니다.'
       : '<strong>' + esc(NAME) + '</strong> 스케줄은 이 폰에만 있습니다. 가족에게는 안 보여요.';
-    $('sampleGo').textContent = localOnly ? '가족과 나누기' : NAME + ' 캡처 넣기';
+    var canShareNow = localOnly && !!groupInfo() && isManager();
+    $('sampleGo').textContent = canShareNow ? '가족 링크에 올리기' : localOnly ? '가족과 나누기' : NAME + ' 캡처 넣기';
     $('sampleGo').dataset.go = localOnly ? 'settings' : 'import';
+    if (canShareNow) $('sampleGo').dataset.shareNow = '1'; else delete $('sampleGo').dataset.shareNow;
     var editable = canEdit();
     $('sampleGo').hidden = !editable && !localOnly;
     document.querySelectorAll('.tab[data-go="import"]').forEach(function (tab) { tab.hidden = !editable; });
@@ -3273,6 +3325,7 @@
       return;
     }
     var data = target.dataset;
+    if (target.id === 'sampleGo' && data.shareNow) return sharePerson(people.current);
     if (data.go) return go(data.go);
     if (target.hasAttribute('data-close')) return target.closest('dialog').close();
     if (target.id === 'openExport') return openExport();
@@ -3413,6 +3466,7 @@
     if (target.id === 'personButton' || target.hasAttribute('data-open-people')) return openPeople();
     if (data.personSwitch) return data.personSwitch === people.current ? $('peopleSheet').close() : switchPerson(data.personSwitch);
     if (data.personRename) return renamePerson(data.personRename);
+    if (data.personShare) return sharePerson(data.personShare);
     if (data.personDelete) return deletePerson(data.personDelete);
     if (target.id === 'addPerson') return addPerson($('newPersonName').value);
     if (data.placeMove) {
