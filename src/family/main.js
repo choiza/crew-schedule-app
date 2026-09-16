@@ -13,6 +13,15 @@
   var sync = C.sync;
   var config = C.config || { ADS: { enabled: false }, TRAVEL: {} };
 
+  // 이 폰이 새 판을 받았는지 눈으로 확인할 수 있게 설정 맨 아래에 적는다. family-sw.js 의 VERSION 과 같이 올린다.
+  var APP_VERSION = 36;
+  (function showVersion() {
+    var el = document.getElementById('appVersion');
+    if (!el) return;
+    var native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    el.textContent = '앱 버전 ' + APP_VERSION + (native ? ' (안드로이드 앱)' : ' (웹)');
+  })();
+
   // 사람 목록은 따로 두고, 스케줄과 설정은 사람마다 다른 자리에 저장한다.
   // 처음 사람은 예전 판과 같은 자리(id minju)를 써서 넣어 둔 스케줄이 그대로 이어진다. 새로 설치하면 이름은 '나'.
   var PEOPLE_KEY = 'crew-family.people';

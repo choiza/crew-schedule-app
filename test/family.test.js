@@ -197,3 +197,13 @@ test('새 스케줄이 들어와도 같은 날짜 같은 편명의 버스 예매
   assert.deepStrictEqual(kept['2026-09-03|KE0017|out'], booked['2026-09-03|KE0017|out']);
   assert.deepStrictEqual(plan.keepBookings(null, next), {});
 });
+
+test('화면에 적는 앱 버전과 서비스 워커 버전이 같다', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+  const sw = /var VERSION = 'family-v(\d+)'/.exec(fs.readFileSync(path.join(root, 'family-sw.js'), 'utf8'));
+  const app = /var APP_VERSION = (\d+);/.exec(fs.readFileSync(path.join(root, 'src/family/main.js'), 'utf8'));
+  assert.ok(sw && app);
+  assert.strictEqual(sw[1], app[1]);
+});
